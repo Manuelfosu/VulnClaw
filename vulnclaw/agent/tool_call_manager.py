@@ -58,11 +58,20 @@ async def handle_tool_calls_with_results(agent: Any, message: Any) -> tuple[list
         func_args = item["func_args"]
         try:
             tool_result = await agent._execute_mcp_tool(func_name, func_args)
+            structured_content = None
+            if getattr(agent, "mcp_manager", None):
+                try:
+                    raw_result = await agent.mcp_manager.call_tool(func_name, func_args)
+                    if isinstance(raw_result, dict):
+                        structured_content = raw_result.get("structured_content")
+                except Exception:
+                    structured_content = None
             results.append(
                 {
                     "tool_call": tool_call,
                     "tool_call_id": tool_call.id,
                     "content": f"[tool:{func_name}] {tool_result}",
+                    "structured_content": structured_content,
                 }
             )
         except Exception as e:

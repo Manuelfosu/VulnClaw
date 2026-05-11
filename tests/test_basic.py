@@ -6,7 +6,7 @@ import pytest
 def test_import_vulnclaw():
     """Test that the main package can be imported."""
     import vulnclaw
-    assert vulnclaw.__version__ == "0.2.6"
+    assert vulnclaw.__version__ == "0.2.7"
 
 
 def test_all_submodules_importable():

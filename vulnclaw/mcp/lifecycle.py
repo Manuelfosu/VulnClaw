@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import subprocess
 import sys
+from contextlib import suppress
 from typing import Any, Optional
 
 from vulnclaw.config.schema import VulnClawConfig, MCPServerConfig
@@ -31,13 +32,41 @@ class MCPLifecycleManager:
         self.config = config
         self.registry = MCPRegistry()
         self._processes: dict[str, subprocess.Popen] = {}
-        self._mcp_clients: dict[str, Any] = {}  # Future: MCP Client instances
+        self._mcp_clients: dict[str, Any] = {}  # Server attach capability cache
+        self._loop: asyncio.AbstractEventLoop | None = None
+
+    def _tool_result(
+        self,
+        *,
+        ok: bool,
+        server: str,
+        tool: str,
+        execution_mode: str,
+        content: Any = None,
+        structured_content: dict[str, Any] | None = None,
+        error_type: str | None = None,
+        message: str = "",
+        suggestion: str = "",
+    ) -> dict[str, Any]:
+        return {
+            "ok": ok,
+            "server": server,
+            "tool": tool,
+            "execution_mode": execution_mode,
+            "content": content,
+            "structured_content": structured_content,
+            "error_type": error_type,
+            "message": message,
+            "suggestion": suggestion,
+        }
 
     def start_enabled_servers(self) -> int:
         """Start all enabled MCP servers.
 
         Returns the number of servers successfully started.
         """
+        with suppress(RuntimeError):
+            self._loop = asyncio.get_running_loop()
         started = 0
         for name, server_config in self.config.mcp.servers.items():
             if server_config.enabled:
@@ -46,7 +75,7 @@ class MCPLifecycleManager:
                     if self._start_server(name, server_config):
                         started += 1
                 except Exception as e:
-                    self.registry.set_server_error(name, str(e))
+                    self.registry.set_server_error(name, str(e), error_type="startup_error")
         return started
 
     def _start_server(self, name: str, config: MCPServerConfig) -> bool:
@@ -54,29 +83,236 @@ class MCPLifecycleManager:
 
         Current execution modes:
         - fetch/memory: local implementation (usable now, no external MCP process)
-        - stdio/sse others: placeholder registration only, not true protocol startup yet
+        - stdio/sse others: attempt attach, then degrade to placeholder if unavailable
         """
         transport = config.transport
 
         if name in {"fetch", "memory"}:
             self.registry.set_server_running(name, running=False)
             self.registry.set_server_execution_mode(name, "local")
+            self.registry.set_server_health(name, "healthy")
+            self.registry.set_server_attach_result(name, attempted=False, succeeded=True)
             self._register_known_tools(name)
             return True
 
         if transport.type == "stdio":
-            self.registry.set_server_running(name, running=False)
-            self.registry.set_server_execution_mode(name, "placeholder")
-            self._register_known_tools(name)
+            attached = self._try_attach_stdio_client(name, config)
+            self.registry.set_server_attach_result(name, attempted=True, succeeded=attached)
+            self.registry.set_server_running(name, running=attached)
+            self.registry.set_server_execution_mode(name, "sdk" if attached else "placeholder")
+            self.registry.set_server_health(name, "healthy" if attached else "degraded")
+            if not attached:
+                self._register_known_tools(name)
             return True
 
         if transport.type == "sse":
-            self.registry.set_server_running(name, running=False)
-            self.registry.set_server_execution_mode(name, "placeholder")
+            attached = self._try_attach_sse_client(name, config)
+            self.registry.set_server_attach_result(name, attempted=True, succeeded=attached)
+            self.registry.set_server_running(name, running=attached)
+            self.registry.set_server_execution_mode(name, "sse" if attached else "placeholder")
+            self.registry.set_server_health(name, "healthy" if attached else "degraded")
             self._register_known_tools(name)
             return True
 
+        self.registry.set_server_health(name, "unavailable")
         return False
+
+    def _try_attach_stdio_client(self, name: str, config: MCPServerConfig) -> bool:
+        """Attempt a real stdio MCP attach when SDK primitives are available."""
+        transport = config.transport
+        if ClientSession is None or StdioServerParameters is None or stdio_client is None:
+            self.registry.set_server_error(name, "MCP Python SDK is not installed", error_type="sdk_unavailable")
+            return False
+
+        if not transport.command:
+            self.registry.set_server_error(name, "stdio transport is missing command", error_type="config_error")
+            return False
+
+        if name not in {"chrome-devtools", "burp"}:
+            self.registry.set_server_error(name, "stdio attach not implemented for this server yet", error_type="unsupported_mode")
+            return False
+
+        ok, details, tools = self._probe_stdio_server(config)
+        if not ok:
+            self.registry.set_server_error(name, details or "stdio attach probe failed", error_type="attach_failed")
+            return False
+
+        self._mcp_clients[name] = {"kind": "stdio-probe", "config": config}
+        if tools:
+            self._register_runtime_tools(name, tools)
+        return True
+
+    def _try_attach_sse_client(self, name: str, config: MCPServerConfig) -> bool:
+        """Attempt a minimal SSE reachability/config validation before fallback."""
+        from urllib.parse import urlparse
+
+        url = config.transport.url or ""
+        if not url:
+            self.registry.set_server_error(name, "sse transport is missing url", error_type="config_error")
+            return False
+
+        parsed = urlparse(url)
+        if not parsed.scheme or not parsed.netloc:
+            self.registry.set_server_error(name, f"invalid SSE url: {url}", error_type="config_error")
+            return False
+
+        return False
+
+    def _probe_stdio_server(self, config: MCPServerConfig) -> tuple[bool, str, list[dict[str, Any]]]:
+        """Run a one-shot stdio MCP probe to validate the server can initialize."""
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop and loop.is_running():
+            return False, "stdio probe skipped because an event loop is already running", []
+
+        try:
+            return asyncio.run(self._async_probe_stdio_server(config))
+        except RuntimeError as exc:
+            return False, str(exc), []
+        except Exception as exc:  # pragma: no cover - defensive
+            return False, str(exc), []
+
+    async def _async_probe_stdio_server(self, config: MCPServerConfig) -> tuple[bool, str, list[dict[str, Any]]]:
+        transport = config.transport
+        server = StdioServerParameters(
+            command=transport.command or "",
+            args=transport.args or [],
+            env=transport.env,
+        )
+
+        try:
+            async with stdio_client(server) as (read_stream, write_stream):
+                session = ClientSession(read_stream, write_stream)
+                await session.initialize()
+                tools = await session.list_tools()
+                tool_defs = self._normalize_mcp_tools(getattr(tools, "tools", []) or [])
+                return True, f"initialized with {len(tool_defs)} tools", tool_defs
+        except Exception as exc:
+            return False, str(exc), []
+
+    def _normalize_mcp_tools(self, tools: list[Any]) -> list[dict[str, Any]]:
+        normalized: list[dict[str, Any]] = []
+        for tool in tools:
+            name = getattr(tool, "name", None)
+            if not name:
+                continue
+            normalized.append(
+                {
+                    "name": name,
+                    "description": getattr(tool, "description", "") or "",
+                    "inputSchema": getattr(tool, "inputSchema", None)
+                    or getattr(tool, "input_schema", None)
+                    or {"type": "object", "properties": {}},
+                }
+            )
+        return normalized
+
+    def _render_mcp_call_result(self, result: Any) -> tuple[str, dict[str, Any] | None, bool]:
+        """Normalize an MCP CallToolResult into readable text plus structured data."""
+        if result is None:
+            return "", None, False
+
+        structured = getattr(result, "structuredContent", None)
+        is_error = bool(getattr(result, "isError", False))
+        content_items = getattr(result, "content", None)
+
+        if not content_items:
+            return str(structured or result), structured if isinstance(structured, dict) else None, is_error
+
+        parts: list[str] = []
+        for item in content_items:
+            item_type = getattr(item, "type", "")
+            if item_type == "text":
+                text = getattr(item, "text", "")
+                if text:
+                    parts.append(str(text))
+                continue
+            if item_type == "image":
+                mime = getattr(item, "mimeType", "") or getattr(item, "mime_type", "")
+                parts.append(f"[image:{mime or 'unknown'}]")
+                continue
+            if item_type == "resource_link":
+                uri = getattr(item, "uri", "")
+                name = getattr(item, "name", "") or uri
+                parts.append(f"[resource:{name}]")
+                continue
+            parts.append(str(item))
+
+        rendered = "\n".join(part for part in parts if part).strip()
+        if not rendered and structured is not None:
+            rendered = str(structured)
+        return rendered, structured if isinstance(structured, dict) else None, is_error
+
+    def _register_runtime_tools(self, server_name: str, tools: list[dict[str, Any]]) -> None:
+        """Replace static known tools with tools discovered from the live MCP server."""
+        self.registry.clear_server_tools(server_name)
+        for tool in tools:
+            self.registry.register_tool(server_name, tool)
+
+    async def _call_stdio_server(self, server_name: str, tool_name: str, arguments: dict[str, Any]) -> Any:
+        """Run a one-shot stdio MCP call using the Python SDK."""
+        client_meta = self._mcp_clients.get(server_name)
+        config = None
+        if isinstance(client_meta, dict):
+            config = client_meta.get("config")
+        if config is None:
+            config = self.config.mcp.servers.get(server_name)
+        if config is None:
+            raise RuntimeError(f"missing MCP config for server {server_name}")
+
+        transport = config.transport
+        server = StdioServerParameters(
+            command=transport.command or "",
+            args=transport.args or [],
+            env=transport.env,
+        )
+
+        async with stdio_client(server) as (read_stream, write_stream):
+            session = ClientSession(read_stream, write_stream)
+            await session.initialize()
+            result = await session.call_tool(tool_name, arguments=arguments)
+            return result
+
+    async def _get_or_create_persistent_stdio_session(self, server_name: str) -> Any:
+        """Create and cache a persistent stdio-backed MCP session for the current loop."""
+        client_meta = self._mcp_clients.get(server_name)
+        current_loop = asyncio.get_running_loop()
+
+        if isinstance(client_meta, dict) and client_meta.get("kind") == "persistent-stdio":
+            if client_meta.get("loop") is current_loop and client_meta.get("session") is not None:
+                return client_meta["session"]
+
+        config = None
+        if isinstance(client_meta, dict):
+            config = client_meta.get("config")
+        if config is None:
+            config = self.config.mcp.servers.get(server_name)
+        if config is None:
+            raise RuntimeError(f"missing MCP config for server {server_name}")
+
+        transport = config.transport
+        server = StdioServerParameters(
+            command=transport.command or "",
+            args=transport.args or [],
+            env=transport.env,
+        )
+
+        cm = stdio_client(server)
+        read_stream, write_stream = await cm.__aenter__()
+        session = ClientSession(read_stream, write_stream)
+        await session.initialize()
+
+        self._mcp_clients[server_name] = {
+            "kind": "persistent-stdio",
+            "config": config,
+            "loop": current_loop,
+            "session": session,
+            "context_manager": cm,
+        }
+        return session
 
 
 
@@ -368,6 +604,17 @@ class MCPLifecycleManager:
 
     def stop_server(self, name: str) -> None:
         """Stop a single MCP server."""
+        client_meta = self._mcp_clients.pop(name, None)
+        if isinstance(client_meta, dict) and client_meta.get("kind") == "persistent-stdio":
+            cm = client_meta.get("context_manager")
+            loop = client_meta.get("loop")
+            if cm is not None and loop is not None and not loop.is_closed():
+                try:
+                    future = asyncio.run_coroutine_threadsafe(cm.__aexit__(None, None, None), loop)
+                    future.result(timeout=5)
+                except Exception:
+                    pass
+
         if name in self._processes:
             try:
                 self._processes[name].terminate()
@@ -380,6 +627,7 @@ class MCPLifecycleManager:
             del self._processes[name]
 
         self.registry.set_server_running(name, running=False)
+        self.registry.set_server_health(name, "unknown")
 
     def stop_all(self) -> None:
         """Stop all running MCP servers."""
@@ -408,7 +656,7 @@ class MCPLifecycleManager:
         """Call an MCP tool by name.
 
         fetch/memory currently run via local implementations.
-        Other servers still mostly expose schemas only.
+        Other servers expose structured unsupported/service-unavailable results.
         """
 
         server_name = self.registry.get_server_for_tool(tool_name)
@@ -418,18 +666,108 @@ class MCPLifecycleManager:
         server_state = self.registry.get_all_servers().get(server_name)
         mode = server_state.execution_mode if server_state else "unknown"
 
-        if server_name == "fetch" and tool_name == "fetch":
-            return await self._call_fetch(arguments)
-        elif server_name == "memory":
-            return await self._call_memory(tool_name, arguments)
-        elif server_name == "chrome-devtools":
-            return await self._call_chrome(tool_name, arguments)
-        elif server_name == "burp":
-            return await self._call_burp(tool_name, arguments)
-        else:
-            return (
-                f"[!] MCP 工具 '{tool_name}' 当前为 {mode} 模式，尚未实现真实协议调用。"
-                f"可用于 schema 暴露与路由提示，但不能直接执行。"
+        try:
+            if server_name == "fetch" and tool_name == "fetch":
+                content = await self._call_fetch(arguments)
+                self.registry.record_tool_call(server_name, success=True)
+                self.registry.set_server_health(server_name, "healthy")
+                return self._tool_result(
+                    ok=True,
+                    server=server_name,
+                    tool=tool_name,
+                    execution_mode=mode,
+                    content=content,
+                    structured_content=None,
+                )
+            if server_name == "memory":
+                content = await self._call_memory(tool_name, arguments)
+                self.registry.record_tool_call(server_name, success=True)
+                self.registry.set_server_health(server_name, "healthy")
+                return self._tool_result(
+                    ok=True,
+                    server=server_name,
+                    tool=tool_name,
+                    execution_mode=mode,
+                    content=content,
+                    structured_content=None,
+                )
+            if server_name == "chrome-devtools":
+                try:
+                    content, structured = await self._call_chrome(tool_name, arguments)
+                    self.registry.record_tool_call(server_name, success=True)
+                    self.registry.set_server_health(server_name, "healthy")
+                    return self._tool_result(
+                        ok=True,
+                        server=server_name,
+                        tool=tool_name,
+                        execution_mode=mode,
+                        content=content,
+                        structured_content=structured,
+                    )
+                except Exception as exc:
+                    message = str(exc)
+                    self.registry.record_tool_call(server_name, success=False)
+                    self.registry.set_server_error(server_name, message, error_type="service_unavailable")
+                    return self._tool_result(
+                        ok=False,
+                        server=server_name,
+                        tool=tool_name,
+                        execution_mode=mode,
+                        error_type="service_unavailable",
+                        message=message,
+                        suggestion="Start the chrome-devtools MCP service or switch to a browser-capable local setup.",
+                    )
+            if server_name == "burp":
+                try:
+                    content, structured = await self._call_burp(tool_name, arguments)
+                    self.registry.record_tool_call(server_name, success=True)
+                    self.registry.set_server_health(server_name, "healthy")
+                    return self._tool_result(
+                        ok=True,
+                        server=server_name,
+                        tool=tool_name,
+                        execution_mode=mode,
+                        content=content,
+                        structured_content=structured,
+                    )
+                except Exception as exc:
+                    message = str(exc)
+                    self.registry.record_tool_call(server_name, success=False)
+                    self.registry.set_server_error(server_name, message, error_type="service_unavailable")
+                    return self._tool_result(
+                        ok=False,
+                        server=server_name,
+                        tool=tool_name,
+                        execution_mode=mode,
+                        error_type="service_unavailable",
+                        message=message,
+                        suggestion="Start the Burp MCP service and verify the proxy integration is ready.",
+                    )
+
+            message = f"MCP tool '{tool_name}' is registered in {mode} mode but is not executable yet."
+            suggestion = "Use a local alternative, or enable a runnable MCP backend for this service."
+            self.registry.record_tool_call(server_name, success=False)
+            self.registry.set_server_error(server_name, message, error_type="unsupported_mode")
+            return self._tool_result(
+                ok=False,
+                server=server_name,
+                tool=tool_name,
+                execution_mode=mode,
+                error_type="unsupported_mode",
+                message=message,
+                suggestion=suggestion,
+            )
+        except Exception as exc:
+            self.registry.record_tool_call(server_name, success=False)
+            self.registry.set_server_error(server_name, str(exc), error_type="execution_failed")
+            return self._tool_result(
+                ok=False,
+                server=server_name,
+                tool=tool_name,
+                execution_mode=mode,
+                error_type="execution_failed",
+                message=str(exc),
+                suggestion="Inspect the MCP service health and tool arguments, then retry.",
             )
 
     async def _call_fetch(self, args: dict) -> str:
@@ -472,11 +810,22 @@ class MCPLifecycleManager:
             return str(value) if value else "[-] 未找到"
         return "[!] 未知 memory 工具"
 
-    async def _call_chrome(self, tool_name: str, args: dict) -> str:
+    async def _call_chrome(self, tool_name: str, args: dict) -> tuple[str, dict[str, Any] | None]:
         """Execute a Chrome DevTools tool call."""
-        # For MVP, provide guidance rather than actual execution
-        return f"[→] Chrome DevTools 工具 '{tool_name}' 需要启动 chrome-devtools-mcp 服务"
+        session = await self._get_or_create_persistent_stdio_session("chrome-devtools")
+        result = await session.call_tool(tool_name, arguments=args)
+        rendered, _, is_error = self._render_mcp_call_result(result)
+        if is_error:
+            raise RuntimeError(rendered or "chrome-devtools call returned an error")
+        _, structured, _ = self._render_mcp_call_result(result)
+        return rendered, structured
 
-    async def _call_burp(self, tool_name: str, args: dict) -> str:
+    async def _call_burp(self, tool_name: str, args: dict) -> tuple[str, dict[str, Any] | None]:
         """Execute a Burp Suite tool call."""
-        return f"[→] Burp Suite 工具 '{tool_name}' 需要启动 Burp MCP 服务"
+        session = await self._get_or_create_persistent_stdio_session("burp")
+        result = await session.call_tool(tool_name, arguments=args)
+        rendered, _, is_error = self._render_mcp_call_result(result)
+        if is_error:
+            raise RuntimeError(rendered or "burp call returned an error")
+        _, structured, _ = self._render_mcp_call_result(result)
+        return rendered, structured

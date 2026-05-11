@@ -30,8 +30,15 @@ class MCPServerState(BaseModel):
     pid: int | None = None
     tools: list[str] = Field(default_factory=list)
     error: str | None = None
+    last_error_type: str | None = None
     started_at: str | None = None
     execution_mode: str = "placeholder"  # local/sdk/subprocess/sse/placeholder
+    health_status: str = "unknown"  # healthy/degraded/unavailable/unknown
+    attach_attempted: bool = False
+    attach_succeeded: bool = False
+    call_count: int = 0
+    success_count: int = 0
+    failure_count: int = 0
 
 
 
@@ -69,10 +76,36 @@ class MCPRegistry:
         if name in self._servers:
             self._servers[name].execution_mode = mode
 
-    def set_server_error(self, name: str, error: str) -> None:
+    def set_server_health(self, name: str, health_status: str) -> None:
+        """Update server health status."""
+        if name in self._servers:
+            self._servers[name].health_status = health_status
+
+    def set_server_attach_result(self, name: str, attempted: bool, succeeded: bool) -> None:
+        """Record whether a real attach/connect attempt was made."""
+        if name in self._servers:
+            self._servers[name].attach_attempted = attempted
+            self._servers[name].attach_succeeded = succeeded
+
+    def set_server_error(self, name: str, error: str, error_type: str | None = None) -> None:
         """Record a server error."""
         if name in self._servers:
             self._servers[name].error = error
+            self._servers[name].last_error_type = error_type
+            self._servers[name].health_status = "degraded"
+
+    def record_tool_call(self, name: str, success: bool) -> None:
+        """Record per-server tool call statistics."""
+        if name in self._servers:
+            self._servers[name].call_count += 1
+            if success:
+                self._servers[name].success_count += 1
+                if self._servers[name].health_status == "unknown":
+                    self._servers[name].health_status = "healthy"
+            else:
+                self._servers[name].failure_count += 1
+                if self._servers[name].health_status == "unknown":
+                    self._servers[name].health_status = "degraded"
 
 
 
@@ -108,6 +141,18 @@ class MCPRegistry:
                 self._tools.pop(tool_name, None)
             del self._server_tools[name]
         self._servers.pop(name, None)
+
+    def clear_server_tools(self, server_name: str) -> None:
+        """Clear all currently registered tools for a server."""
+        if server_name not in self._server_tools:
+            self._server_tools[server_name] = []
+            return
+
+        for tool_name in list(self._server_tools[server_name]):
+            self._tools.pop(tool_name, None)
+        self._server_tools[server_name] = []
+        if server_name in self._servers:
+            self._servers[server_name].tools = []
 
     def get_tool_schema(self, tool_name: str) -> Optional[MCPToolSchema]:
         """Get the schema for a specific tool."""

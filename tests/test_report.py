@@ -78,6 +78,53 @@ class TestReportGenerator:
         assert "SQL Injection" in content
         assert "Cross-Site Scripting" in content
         assert "Information Disclosure" in content
+        assert "PoC" in content
+        assert "证据等级" in content
+        assert "生命周期" in content
+
+    def test_report_includes_location_and_repro_details(self, tmp_path):
+        from vulnclaw.report.generator import generate_report
+        from vulnclaw.agent.context import SessionState, VulnerabilityFinding
+
+        session = SessionState(target="https://example.com")
+        finding = VulnerabilityFinding(
+            title="Verified RCE",
+            severity="Critical",
+            vuln_type="RCE",
+            description="通过工具验证确认：admin 接口存在命令执行",
+            evidence="https://example.com/admin/exec | /admin/exec | 通过工具验证确认：命令执行成功",
+        )
+        finding.mark_verified(note="whoami 返回 www-data")
+        session.add_finding(finding)
+
+        output = str(tmp_path / "report_rce.md")
+        generate_report(session, output)
+        content = Path(output).read_text(encoding="utf-8")
+        assert "已验证漏洞定位与复现信息" in content
+        assert "https://example.com/admin/exec" in content
+        assert "PoC" in content
+
+    def test_report_high_risk_pending_item_marks_manual_review(self, tmp_path):
+        from vulnclaw.report.generator import generate_report
+        from vulnclaw.agent.context import SessionState, VulnerabilityFinding
+
+        session = SessionState(target="https://example.com")
+        finding = VulnerabilityFinding(
+            title="Possible RCE",
+            severity="Critical",
+            vuln_type="RCE",
+            description="Potential command execution path",
+            evidence="https://example.com/admin/exec | whoami",
+            evidence_level="L2",
+            lifecycle_status="pending_verification",
+        )
+        session.add_finding(finding)
+
+        output = str(tmp_path / "report_review.md")
+        generate_report(session, output)
+        content = Path(output).read_text(encoding="utf-8")
+        assert "需人工复核" in content
+        assert "候选项" in content or "待验证项" in content
 
     def test_report_contains_severity_counts(self, tmp_path):
         from vulnclaw.report.generator import generate_report
@@ -119,6 +166,7 @@ class TestReportGenerator:
         content = Path(output).read_text(encoding="utf-8")
         # Report with no verified findings should mention 0 verified or show summary
         assert "10.0.0.1" in content
+        assert "候选项" in content
         assert "已验证漏洞" in content
 
     def test_report_creates_pocs_dir(self, tmp_path):
@@ -133,7 +181,7 @@ class TestReportGenerator:
     def test_report_auto_output_path(self, tmp_path):
         """If no output path specified, should auto-generate one."""
         from vulnclaw.report.generator import generate_report
-        from vulnclaw.agent.context import SessionState
+        from vulnclaw.agent.context import SessionState, VulnerabilityFinding
         session = SessionState(target="auto-target")
         # This will use the default SESSIONS_DIR
         try:
@@ -149,6 +197,79 @@ class TestReportGenerator:
         output = str(tmp_path / "report.custom")
         path = generate_report(session, output, report_format="markdown")
         assert path.suffix == ".custom"
+
+    def test_generate_report_from_target_state_includes_governance_context(self, tmp_path):
+        from vulnclaw.report.generator import generate_report_from_target_state
+
+        target_state = {
+            "target": "https://example.com",
+            "started_at": "2026-05-08T12:00:00",
+            "phase": "漏洞发现",
+            "findings": [],
+            "recon_data": {
+                "subdomains": ["vpn.example.com"],
+                "paths": ["/admin"],
+            },
+            "executed_steps": ["Round 1: 访问 /admin 失败"],
+            "notes": [],
+            "resume_meta": {
+                "resume_strategy": "continue_scan",
+                "resume_strategy_reason": "已有高价值侦察资产，继续候选验证",
+                "priority_targets": ["/admin"],
+                "priority_recon_assets": ["paths:/admin", "subdomains:vpn.example.com"],
+                "blocked_targets": ["old.example.com"],
+                "failed_targets": ["old.example.com (3)"],
+                "recent_failed_steps": ["Round 1: 访问 /admin 失败"],
+            },
+            "resume_summary": "恢复后优先测试 /admin 与 vpn.example.com",
+            "recon_meta": {
+                "paths": {
+                    "/admin": {"confidence": 0.92},
+                },
+                "subdomains": {
+                    "vpn.example.com": {"confidence": 0.88},
+                },
+            },
+            "runtime_meta": {
+                "current_attack_path": "path_probe",
+            },
+        }
+
+        output = generate_report_from_target_state(target_state)
+        content = Path(output).read_text(encoding="utf-8")
+        assert "目标历史治理上下文" in content
+        assert "continue_scan" in content
+        assert "paths:/admin" in content
+        assert "old.example.com" in content
+
+    def test_persistent_cycle_report_includes_verified_location_and_poc(self, tmp_path):
+        from vulnclaw.report.generator import generate_persistent_cycle_report
+        from vulnclaw.agent.context import SessionState, VulnerabilityFinding
+
+        session = SessionState(target="https://example.com")
+        finding = VulnerabilityFinding(
+            title="Verified Command Exec",
+            severity="Critical",
+            vuln_type="RCE",
+            description="通过工具验证确认：admin 接口存在命令执行",
+            evidence="https://example.com/admin/exec | /admin/exec | 通过工具验证确认：命令执行成功",
+        )
+        finding.mark_verified(note="whoami 返回 www-data")
+        session.add_finding(finding)
+
+        output = generate_persistent_cycle_report(
+            session=session,
+            cycle_num=1,
+            total_findings=1,
+            new_findings=1,
+            total_steps=10,
+            rounds_per_cycle=100,
+            output_path=str(tmp_path / "cycle.md"),
+        )
+        content = Path(output).read_text(encoding="utf-8")
+        assert "已验证漏洞定位与复现信息" in content
+        assert "https://example.com/admin/exec" in content
+        assert "PoC" in content
 
 
 # ── poc_builder.py ───────────────────────────────────────────────────
@@ -205,6 +326,7 @@ class TestPoCBuilder:
         from vulnclaw.report.poc_builder import generate_pocs
         from vulnclaw.agent.context import SessionState, VulnerabilityFinding
         session = SessionState(target="10.0.0.1")
+        session.add_finding(VulnerabilityFinding(title="Candidate", severity="Low", lifecycle_status="candidate"))
         session.add_finding(VulnerabilityFinding(
             title="RCE Vuln",
             severity="Critical",
@@ -285,3 +407,22 @@ class TestPoCBuilder:
         pocs_dir = tmp_path / "pocs"
         paths = generate_pocs(session, pocs_dir)
         assert len(paths) == 0
+
+    def test_report_counts_manual_review_findings(self, tmp_path):
+        from vulnclaw.report.generator import generate_report
+        from vulnclaw.agent.context import SessionState, VulnerabilityFinding
+
+        session = SessionState(target="https://example.com")
+        session.add_finding(
+            VulnerabilityFinding(
+                title="High Risk Candidate",
+                severity="High",
+                lifecycle_status="candidate",
+                evidence_level="L1",
+            )
+        )
+
+        output = str(tmp_path / "report_manual.md")
+        generate_report(session, output)
+        content = Path(output).read_text(encoding="utf-8")
+        assert "需人工复核" in content

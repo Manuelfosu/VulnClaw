@@ -52,6 +52,7 @@ from vulnclaw.agent.builtin_tools import (
     parse_nmap_xml,
     validate_scan_target,
 )
+from vulnclaw.target_state.store import save_target_state
 
 # Optional KB integration — gracefully degrade if KB data is unavailable
 try:
@@ -81,7 +82,15 @@ class AgentCore:
     def _maybe_auto_save_session(self) -> None:
         """Persist session state when auto-save is enabled."""
         if self.config.session.auto_save:
-            self.context.state.save()
+            session_path = self.context.state.save()
+            if self.context.state.target:
+                save_target_state(
+                    self.context.state.target,
+                    self.context.state,
+                    command="auto",
+                    session_file=str(session_path),
+                    runtime=self.runtime,
+                )
 
     @property
     def session_state(self) -> SessionState:
@@ -141,6 +150,13 @@ class AgentCore:
             except ImportError:
                 raise RuntimeError("请安装 openai 包: pip install openai")
         return self._client
+
+    @staticmethod
+    def _extract_response(message: Any) -> str:
+        """Compatibility wrapper for old tests and call sites."""
+        from vulnclaw.agent.llm_client import extract_response
+
+        return extract_response(message)
 
     def _build_system_prompt(self, target: Optional[str] = None, auto_mode: bool = False, user_input: Optional[str] = None) -> str:
         """Build the dynamic system prompt for this turn."""

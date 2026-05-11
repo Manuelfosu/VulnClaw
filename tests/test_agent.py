@@ -35,6 +35,8 @@ class TestVulnerabilityFinding:
         assert finding.severity == "Medium"
         assert finding.vuln_type == ""
         assert finding.cve is None
+        assert finding.evidence_level == "L1"
+        assert finding.lifecycle_status == "candidate"
 
     def test_full_values(self):
         from vulnclaw.agent.context import VulnerabilityFinding
@@ -186,6 +188,269 @@ class TestAgentAutoSave:
         monkeypatch.setattr(SessionState, "save", fake_save)
         agent._maybe_auto_save_session()
         assert saved["count"] == 0
+
+
+class TestTargetState:
+    """Test target-level resume state."""
+
+    def test_target_state_save_and_load(self, monkeypatch, tmp_path):
+        import vulnclaw.target_state.store as store_mod
+        from vulnclaw.agent.context import SessionState, PentestPhase
+
+        monkeypatch.setattr(store_mod, "TARGETS_DIR", tmp_path)
+        state = SessionState(target="https://example.com")
+        state.advance_phase(PentestPhase.RECON)
+        path = store_mod.save_target_state("https://example.com", state, command="recon")
+        assert path.exists()
+
+        restored = store_mod.hydrate_session_from_target_state("https://example.com")
+        assert restored is not None
+        assert restored.target == "https://example.com"
+        assert restored.phase == PentestPhase.RECON
+        assert "历史成果摘要" in restored.resume_summary
+
+    def test_target_state_merges_findings(self, monkeypatch, tmp_path):
+        import vulnclaw.target_state.store as store_mod
+        from vulnclaw.agent.context import SessionState, VulnerabilityFinding
+
+        monkeypatch.setattr(store_mod, "TARGETS_DIR", tmp_path)
+
+        state1 = SessionState(target="https://example.com")
+        state1.add_finding(VulnerabilityFinding(title="SQLi", severity="High", vuln_type="SQLi"))
+        store_mod.save_target_state("https://example.com", state1, command="scan")
+
+        state2 = SessionState(target="https://example.com")
+        state2.add_finding(VulnerabilityFinding(title="XSS", severity="Medium", vuln_type="XSS"))
+        store_mod.save_target_state("https://example.com", state2, command="scan")
+
+        restored = store_mod.hydrate_session_from_target_state("https://example.com")
+        assert restored is not None
+        titles = [f.title for f in restored.findings]
+        assert "SQLi" in titles
+        assert "XSS" in titles
+
+    def test_target_state_resume_strategy_prefers_pending(self, monkeypatch, tmp_path):
+        import vulnclaw.target_state.store as store_mod
+        from vulnclaw.agent.context import SessionState, VulnerabilityFinding
+
+        monkeypatch.setattr(store_mod, "TARGETS_DIR", tmp_path)
+        state = SessionState(target="https://example.com")
+        pending = VulnerabilityFinding(title="Pending SQLi", severity="High", vuln_type="SQLi")
+        state.add_finding(pending)
+        store_mod.save_target_state("https://example.com", state, command="scan")
+
+        restored = store_mod.hydrate_session_from_target_state("https://example.com")
+        assert restored is not None
+        assert restored.resume_meta["resume_strategy"] == "verify_pending_findings"
+        assert restored.phase.value == "漏洞发现"
+        raw = store_mod.load_target_state("https://example.com")
+        assert raw is not None
+        assert "finding_meta" in raw
+
+    def test_target_state_resume_strategy_prefers_exploit_on_verified(self, monkeypatch, tmp_path):
+        import vulnclaw.target_state.store as store_mod
+        from vulnclaw.agent.context import SessionState, VulnerabilityFinding
+
+        monkeypatch.setattr(store_mod, "TARGETS_DIR", tmp_path)
+        state = SessionState(target="https://example.com")
+        verified = VulnerabilityFinding(title="Verified SQLi", severity="High", vuln_type="SQLi")
+        verified.mark_verified()
+        state.add_finding(verified)
+        state.recon_dimensions_completed = {
+            "server": True,
+            "website": True,
+            "domain": True,
+            "personnel": False,
+        }
+        store_mod.save_target_state("https://example.com", state, command="exploit")
+
+        restored = store_mod.hydrate_session_from_target_state("https://example.com")
+        assert restored is not None
+        assert restored.resume_meta["resume_strategy"] == "exploit_expand"
+        assert restored.phase.value == "漏洞利用"
+        assert "priority_findings" in restored.resume_meta
+        assert "next_actions" in restored.resume_meta
+
+    def test_target_state_confidence_is_persisted(self, monkeypatch, tmp_path):
+        import vulnclaw.target_state.store as store_mod
+        from vulnclaw.agent.context import SessionState, VulnerabilityFinding
+
+        monkeypatch.setattr(store_mod, "TARGETS_DIR", tmp_path)
+        state = SessionState(target="https://example.com")
+        finding = VulnerabilityFinding(title="Pending SQLi", severity="High", vuln_type="SQLi")
+        state.add_finding(finding)
+        store_mod.save_target_state("https://example.com", state, command="scan")
+
+        raw = store_mod.load_target_state("https://example.com")
+        assert raw is not None
+        meta = next(iter(raw["finding_meta"].values()))
+        assert "confidence" in meta
+        assert meta["confidence"] > 0
+
+    def test_target_state_recon_meta_is_persisted(self, monkeypatch, tmp_path):
+        import vulnclaw.target_state.store as store_mod
+        from vulnclaw.agent.context import SessionState
+
+        monkeypatch.setattr(store_mod, "TARGETS_DIR", tmp_path)
+        state = SessionState(target="https://example.com")
+        state.recon_data = {
+            "subdomains": ["vpn.example.com", "api.example.com"],
+            "paths": ["/admin", "/login"],
+            "params": ["id", "file"],
+        }
+
+        store_mod.save_target_state("https://example.com", state, command="recon")
+        raw = store_mod.load_target_state("https://example.com")
+        assert raw is not None
+        assert "recon_meta" in raw
+        assert "subdomains" in raw["recon_meta"]
+        assert "vpn.example.com" in raw["recon_meta"]["subdomains"]
+        assert raw["recon_meta"]["paths"]["/admin"]["confidence"] > 0
+        assert raw["recon_meta"]["params"]["id"]["observation_count"] >= 1
+
+    def test_target_state_resume_summary_includes_recon_assets(self, monkeypatch, tmp_path):
+        import vulnclaw.target_state.store as store_mod
+        from vulnclaw.agent.context import SessionState
+
+        monkeypatch.setattr(store_mod, "TARGETS_DIR", tmp_path)
+        state = SessionState(target="https://example.com")
+        state.recon_data = {
+            "subdomains": ["vpn.example.com"],
+            "paths": ["/admin"],
+            "params": ["id"],
+        }
+
+        store_mod.save_target_state("https://example.com", state, command="scan")
+        restored = store_mod.hydrate_session_from_target_state("https://example.com")
+        assert restored is not None
+        assert "高置信度侦察资产" in restored.resume_summary
+        assert "paths:/admin" in restored.resume_summary or "subdomains:vpn.example.com" in restored.resume_summary
+
+    def test_target_state_resume_strategy_exposes_recon_priority_targets(self, monkeypatch, tmp_path):
+        import vulnclaw.target_state.store as store_mod
+        from vulnclaw.agent.context import SessionState
+        from vulnclaw.agent.runtime_state import RuntimeState
+
+        monkeypatch.setattr(store_mod, "TARGETS_DIR", tmp_path)
+        state = SessionState(target="https://example.com")
+        state.recon_data = {
+            "subdomains": ["vpn.example.com"],
+            "paths": ["/admin", "/upload"],
+            "params": ["file"],
+        }
+        runtime = RuntimeState()
+        runtime.rounds_without_progress = 4
+
+        store_mod.save_target_state("https://example.com", state, command="scan", runtime=runtime)
+        raw = store_mod.load_target_state("https://example.com")
+        assert raw is not None
+        assert raw["resume_meta"]["resume_strategy"] in {"continue_recon", "continue_scan"}
+        assert raw["resume_meta"]["priority_targets"]
+        assert raw["resume_meta"]["priority_recon_assets"]
+
+    def test_target_state_runtime_meta_is_persisted(self, monkeypatch, tmp_path):
+        import vulnclaw.target_state.store as store_mod
+        from vulnclaw.agent.context import SessionState
+        from vulnclaw.agent.runtime_state import RuntimeState
+
+        monkeypatch.setattr(store_mod, "TARGETS_DIR", tmp_path)
+        state = SessionState(target="https://example.com")
+        state.executed_steps = [
+            "Round 1: 访问 https://a.example.com/admin 失败，连接超时",
+            "Round 2: 测试 /login 参数无新发现",
+        ]
+        runtime = RuntimeState()
+        runtime.blocked_targets = {"a.example.com"}
+        runtime.failed_targets = {"a.example.com": 3, "b.example.com": 1}
+        runtime.rounds_without_progress = 4
+        runtime.current_attack_path = "sql_injection"
+
+        store_mod.save_target_state("https://example.com", state, command="scan", runtime=runtime)
+        raw = store_mod.load_target_state("https://example.com")
+        assert raw is not None
+        assert raw["runtime_meta"]["blocked_targets"] == ["a.example.com"]
+        assert raw["runtime_meta"]["failed_targets"]["a.example.com"] == 3
+        assert raw["runtime_meta"]["rounds_without_progress"] == 4
+        assert raw["runtime_meta"]["current_attack_path"] == "sql_injection"
+        assert raw["runtime_meta"]["failed_steps"]
+
+    def test_target_state_resume_summary_includes_runtime_signals(self, monkeypatch, tmp_path):
+        import vulnclaw.target_state.store as store_mod
+        from vulnclaw.agent.context import SessionState
+        from vulnclaw.agent.runtime_state import RuntimeState
+
+        monkeypatch.setattr(store_mod, "TARGETS_DIR", tmp_path)
+        state = SessionState(target="https://example.com")
+        state.executed_steps = ["Round 1: 访问 https://a.example.com/admin 失败，连接超时"]
+        runtime = RuntimeState()
+        runtime.blocked_targets = {"a.example.com"}
+        runtime.failed_targets = {"a.example.com": 3}
+        runtime.rounds_without_progress = 5
+
+        store_mod.save_target_state("https://example.com", state, command="recon", runtime=runtime)
+        restored = store_mod.hydrate_session_from_target_state("https://example.com")
+        assert restored is not None
+        assert "已阻塞目标" in restored.resume_summary
+        assert "连续低价值轮次" in restored.resume_summary
+        assert "最近失败路径/步骤" in restored.resume_summary
+
+    def test_target_state_snapshots_and_rollback(self, monkeypatch, tmp_path):
+        import vulnclaw.target_state.store as store_mod
+        from vulnclaw.agent.context import SessionState, VulnerabilityFinding
+
+        monkeypatch.setattr(store_mod, "TARGETS_DIR", tmp_path)
+
+        state1 = SessionState(target="https://example.com")
+        state1.add_finding(VulnerabilityFinding(title="SQLi", severity="High", vuln_type="SQLi"))
+        store_mod.save_target_state("https://example.com", state1, command="scan")
+
+        state2 = SessionState(target="https://example.com")
+        state2.add_finding(VulnerabilityFinding(title="XSS", severity="Medium", vuln_type="XSS"))
+        store_mod.save_target_state("https://example.com", state2, command="scan")
+
+        snapshots = store_mod.list_target_snapshots("https://example.com")
+        assert len(snapshots) >= 2
+
+        oldest = snapshots[-1]["snapshot_id"]
+        store_mod.rollback_target_state("https://example.com", oldest)
+        restored = store_mod.hydrate_session_from_target_state("https://example.com")
+        assert restored is not None
+        titles = [f.title for f in restored.findings]
+        assert "SQLi" in titles
+
+    def test_target_state_schema_preview_and_diff(self, monkeypatch, tmp_path):
+        import vulnclaw.target_state.store as store_mod
+        from vulnclaw.agent.context import SessionState, VulnerabilityFinding
+
+        monkeypatch.setattr(store_mod, "TARGETS_DIR", tmp_path)
+
+        state1 = SessionState(target="https://example.com")
+        state1.add_note("first note")
+        state1.add_finding(VulnerabilityFinding(title="SQLi", severity="High", vuln_type="SQLi"))
+        store_mod.save_target_state("https://example.com", state1, command="recon")
+
+        state2 = SessionState(target="https://example.com")
+        state2.add_note("second note")
+        state2.add_finding(VulnerabilityFinding(title="XSS", severity="Medium", vuln_type="XSS"))
+        store_mod.save_target_state("https://example.com", state2, command="scan")
+
+        snapshots = store_mod.list_target_snapshots("https://example.com")
+        assert snapshots and snapshots[0]["schema_version"] >= 2
+
+        preview = store_mod.get_target_state_preview("https://example.com")
+        assert preview is not None
+        assert preview["schema_version"] >= 2
+        assert preview["findings_count"] >= 1
+        assert preview["next_actions"]
+
+        diff = store_mod.diff_target_state_snapshots(
+            "https://example.com",
+            snapshots[-1]["snapshot_id"],
+            to_snapshot_id=snapshots[0]["snapshot_id"],
+        )
+        assert diff is not None
+        assert diff["added_findings"]
+        assert diff["added_notes"]
 
 
 # ── memory.py ────────────────────────────────────────────────────────
@@ -498,6 +763,30 @@ class TestAgentCore:
         agent._finding_parser.parse(response)
         assert len(agent.session_state.findings) >= 1
         assert agent.session_state.findings[0].severity == "Critical"
+        assert agent.session_state.findings[0].evidence_level == "L1"
+
+    def test_parse_high_confidence_pattern_needs_manual_review(self):
+        agent = self._make_agent()
+        agent.context.state.add_note("访问 https://example.com/admin/exec 后 whoami 返回 www-data")
+        response = "发现远程代码执行漏洞，命令执行成功，whoami"
+        agent._finding_parser.parse(response)
+
+        review_items = [f for f in agent.session_state.findings if f.lifecycle_status == "needs_manual_review"]
+        assert review_items
+        assert review_items[0].evidence_level == "L2"
+
+    def test_confirmed_fact_verified_finding_carries_location_and_verified_at(self):
+        agent = self._make_agent()
+        agent.context.state.add_confirmed_fact("命令执行成功")
+        agent.context.state.add_note("发现入口 https://example.com/admin/exec")
+        agent._finding_parser.parse("访问 https://example.com/admin/exec 后确认命令执行成功")
+
+        verified = [f for f in agent.session_state.findings if f.verification_status == "verified"]
+        assert verified
+        assert "https://example.com/admin/exec" in (verified[0].evidence or "")
+        assert verified[0].verified_at is not None
+        assert verified[0].evidence_level == "L4"
+        assert verified[0].lifecycle_status == "verified"
 
     def test_phase_detection_from_output(self):
         from vulnclaw.agent.context import PentestPhase
@@ -801,6 +1090,159 @@ class TestAgentCoreLoop:
         assert "LLM恢复" in result
         assert "恢复成功" in result
         assert loop.calls == 3
+
+    @pytest.mark.asyncio
+    async def test_llm_client_bad_request_errors_are_not_retried(self, monkeypatch):
+        from vulnclaw.agent import llm_client
+
+        class DummyLoop:
+            def __init__(self):
+                self.calls = 0
+
+            async def run_in_executor(self, executor, fn):
+                self.calls += 1
+                raise RuntimeError("bad_request_error: invalid chat setting (2013)")
+
+        class DummyAgent:
+            class _DummyClient:
+                class _Chat:
+                    class _Completions:
+                        def create(self, **kwargs):
+                            return None
+
+                    completions = _Completions()
+
+                chat = _Chat()
+
+            class _DummyConfig:
+                class _DummyLLM:
+                    model = "gpt-4o-mini"
+                    max_tokens = 256
+                    temperature = 0.1
+                    provider = "openai"
+                    reasoning_effort = "high"
+
+                llm = _DummyLLM()
+
+            class _DummyContext:
+                @staticmethod
+                def get_messages():
+                    return []
+
+            config = _DummyConfig()
+            context = _DummyContext()
+
+            def _build_openai_tools(self):
+                return []
+
+            def _get_client(self):
+                return self._DummyClient()
+
+        loop = DummyLoop()
+        dummy = DummyAgent()
+        monkeypatch.setattr(llm_client.asyncio, "get_event_loop", lambda: loop)
+
+        with pytest.raises(RuntimeError):
+            await llm_client.call_llm_auto(dummy, "sys", "round")
+
+        assert loop.calls == 1
+
+    @pytest.mark.asyncio
+    async def test_llm_client_tool_summary_bad_request_degrades_to_plain_text(self, monkeypatch):
+        from vulnclaw.agent import llm_client
+
+        class DummyLoop:
+            def __init__(self):
+                self.calls = 0
+
+            async def run_in_executor(self, executor, fn):
+                self.calls += 1
+                if self.calls == 1:
+                    class ToolCall:
+                        id = "call_1"
+
+                        class Function:
+                            name = "fetch"
+                            arguments = '{"url":"https://example.com"}'
+
+                        function = Function()
+
+                    class Msg:
+                        content = ""
+                        tool_calls = [ToolCall()]
+
+                    class Choice:
+                        message = Msg()
+
+                    class Resp:
+                        choices = [Choice()]
+
+                    return Resp()
+                raise RuntimeError("bad_request_error: invalid function arguments json string, tool_call_id: call_1")
+
+        class DummyAgent:
+            class _DummyClient:
+                class _Chat:
+                    class _Completions:
+                        def create(self, **kwargs):
+                            return None
+
+                    completions = _Completions()
+
+                chat = _Chat()
+
+            class _DummyConfig:
+                class _DummyLLM:
+                    model = "gpt-4o-mini"
+                    max_tokens = 256
+                    temperature = 0.1
+                    provider = "openai"
+                    reasoning_effort = "high"
+
+                llm = _DummyLLM()
+
+            class _DummyContext:
+                def __init__(self):
+                    self.saved = []
+
+                @staticmethod
+                def get_messages():
+                    return []
+
+                def add_assistant_message(self, text):
+                    self.saved.append(text)
+
+            config = _DummyConfig()
+
+            def __init__(self):
+                self.context = self._DummyContext()
+
+            def _build_openai_tools(self):
+                return [{"function": {"name": "fetch"}}]
+
+            def _get_client(self):
+                return self._DummyClient()
+
+        async def fake_handle_tool_calls_with_results(agent, message):
+            return (
+                [
+                    {
+                        "tool_call": message.tool_calls[0],
+                        "tool_call_id": "call_1",
+                        "content": "[tool:fetch] Status: 200",
+                    }
+                ],
+                [],
+            )
+
+        loop = DummyLoop()
+        dummy = DummyAgent()
+        monkeypatch.setattr(llm_client.asyncio, "get_event_loop", lambda: loop)
+        monkeypatch.setattr(llm_client, "handle_tool_calls_with_results", fake_handle_tool_calls_with_results)
+
+        result = await llm_client.call_llm_auto(dummy, "sys", "round")
+        assert "已降级为纯文本结果摘要" in result
+        assert "Status: 200" in result
 
     @pytest.mark.asyncio
     async def test_auto_pentest_stops_on_done_signal(self, monkeypatch):

@@ -8,7 +8,7 @@
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/)
 [![OpenAI Compatible](https://img.shields.io/badge/API-OpenAI_Compatible-green)](https://platform.openai.com/)
 [![MCP](https://img.shields.io/badge/Toolchain-MCP-orange)](https://modelcontextprotocol.io/)
-[![PyPI](https://img.shields.io/badge/PyPI-v0.2.6-blueviolet)](https://pypi.org/project/vulnclaw/)
+[![PyPI](https://img.shields.io/badge/PyPI-v0.2.7-blueviolet)](https://pypi.org/project/vulnclaw/)
 [![Security](https://img.shields.io/badge/Scope-Authorized_Only-red)](#-security-notice)
 <br>
 
@@ -59,6 +59,7 @@ Suitable for authorized pentests, CTF competitions, security training, and red t
 - **Thinking Process Control** — `think on/off` toggles LLM reasoning visibility, off by default for clean output
 - **Sandbox Mode Prompting** — Unlocks AI security testing capabilities, designed for CTF and authorized pentest scenarios
 - **Auto Report & PoC** — Generates structured Markdown reports and runnable Python PoC scripts
+- **Web UI Mode** — `vulnclaw web` launches a local web interface for browser-based pentest operations, default `127.0.0.1:7788`
 - **Security Knowledge Base** — Includes the KB module and baseline seed data today; retrieval augmentation is being integrated into the main workflow incrementally
 
 ---
@@ -151,6 +152,7 @@ $ vulnclaw --help
    config        ⚙️  Manage config (set/get/list/provider)
    init          🔧 Initialize configuration
    doctor        🏥  Check runtime environment
+   web           🌐 Launch local Web UI
 ```
 
 ### Command Reference
@@ -170,6 +172,7 @@ $ vulnclaw --help
 | `vulnclaw config provider <name>` | Switch LLM provider | `vulnclaw config provider deepseek` |
 | `vulnclaw init` | Initialize config files | `vulnclaw init` |
 | `vulnclaw doctor` | Check runtime environment | `vulnclaw doctor` |
+| `vulnclaw web` | Launch local Web UI | `vulnclaw web` / `vulnclaw web --port 8080` |
 
 ### Provider Configuration
 
@@ -302,6 +305,28 @@ vulnclaw persistent 192.168.1.100 --no-report   # disable auto-report
 🦞 vulnclaw> persistent 192.168.1.100
 ```
 
+### Mode 4: Web UI
+
+Operate the full pentest workflow through a browser — ideal for users who prefer a graphical interface.
+
+```bash
+# Install Web dependencies
+pip install vulnclaw[web]
+
+# Launch Web UI (default: 127.0.0.1:7788)
+vulnclaw web
+
+# Custom port
+vulnclaw web --port 8080
+
+# Dry-run (validate launch info without starting the server)
+vulnclaw web --dry-run
+```
+
+Once launched, open `http://127.0.0.1:7788` in your browser.
+
+> ⚠️ By default the server binds to localhost only. To allow remote access you must explicitly pass `--host 0.0.0.0 --allow-remote` — make sure your network is secure.
+
 ---
 
 ## LLM Provider Configuration
@@ -365,6 +390,7 @@ vulnclaw config provider minimax   # one-command switch
 | **Anti-loop / CTF** | `agent/anti_loop.py` + `ctf_mode.py`                | Completion signals, attack-path heuristics, failed-target tracking, flag state machine |
 | **Session State**   | `agent/context.py`                                   | Phase tracking + findings + step records            |
 | **Skill / KB Context** | `agent/skill_context.py` + `kb_context.py`       | Skill selection and knowledge-base prompt injection |
+| **Target State**    | `target_state/store.py`                              | Per-target persistence, resume, snapshots, rollback, target-level reports |
 | **MCP Orchestration**| `mcp/registry.py` + `lifecycle.py` + `router.py`    | Service registry + lifecycle + NL→tool routing     |
 | **Skill Dispatcher** | `skills/loader.py` + `dispatcher.py`               | Directory-format Skills + 16-intent dynamic routing |
 | **Crypto Tools**    | `skills/crypto_tools.py`                             | 29 encode/decode/crypto ops, registered as built-in tools |
@@ -504,7 +530,7 @@ Config file location: `~/.vulnclaw/config.yaml`.
 | v0.1.2    | 3 CTF specialized Skills + 3 existing Skills updated + trigger words       | ✅ Done      |
 | v0.1.3    | Four-dimension recon model + RECON_MIN_ROUNDS + dimension completion self-check + social eng conditional trigger + osint-recon Skill | ✅ Done |
 | v0.1.4    | Pentest stability fixes (findings parsing / recon progression / summary filtering / nmap guardrails) | ✅ Done |
-| **v0.2.6**| **Current release: core orchestration modularization, doctor/KB/report-config closure, and architecture docs sync** | ✅ **Current** |
+| **v0.2.7**| **Current release: target-level result inheritance, target-state governance, and architecture docs sync** | ✅ **Current** |
 | v0.3      | Reverse engineering (IDA Pro) — Skills ready                              | 📋 Skills ✅ |
 | v0.4      | Knowledge base enhancement (ChromaDB vector retrieval + semantic skill routing)| 📋          |
 | v1.0      | Official release (PyPI + docs + CI/CD)                                    | 📋          |

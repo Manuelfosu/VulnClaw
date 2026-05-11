@@ -34,7 +34,8 @@ VulnClaw/
 │   ├── kb/               # 知识库存储、检索、更新逻辑
 │   ├── mcp/              # MCP registry / lifecycle / router
 │   ├── report/           # 报告生成、内容过滤、PoC 构建、验证器
-│   └── skills/           # Skill loader / dispatcher / core / specialized skills
+│   ├── skills/           # Skill loader / dispatcher / core / specialized skills
+│   └── target_state/     # 目标级成果继承、快照、恢复、回滚、target 报告
 │
 ├── tests/                # 单元测试、状态机测试、MCP 测试、配置测试
 ├── README.md             # 中文说明
@@ -89,6 +90,13 @@ VulnClaw/
 
 当前 `fetch` / `memory` 已有最小真实协议接入，其余多数仍为 `placeholder`。
 
+### 6. 改断点续测 / 成果继承时看 `vulnclaw/target_state/`
+
+- `store.py`：target state 持久化、合并、快照、恢复、回滚
+- 相关 CLI 接入：`vulnclaw/cli/main.py`
+
+这部分职责是“同一目标跨命令共享成果”，不要把这类逻辑重新塞回 `core.py`。
+
 ---
 
 ## Contribution Tips
@@ -109,3 +117,43 @@ VulnClaw/
 2. 文档与实现一致
 3. 新逻辑放在正确模块，而不是重新把职责塞回大文件
 4. 版本号、CLI 输出、README 如果受影响，已同步更新
+
+---
+
+## Web UI Notes
+
+如果你在修改 Web UI 相关能力，优先查看：
+
+- [VulnClaw_Web_UI开发需求文档.md](C:/Users/UncleC/Desktop/VulnClaw/VulnClaw_Web_UI开发需求文档.md)
+- `vulnclaw/web/`
+
+当前 Web UI 处于 **Phase 1 后端骨架阶段**：
+
+- `app.py`：FastAPI 入口
+- `task_manager.py`：任务运行态与事件流
+- `services/`：target / report / config / task 服务层
+- `static/`：最小静态占位页
+- `frontend/`：React + Vite + TypeScript 前端 scaffold
+
+原则上：
+
+- Web 层复用现有 Agent / target_state / report 主干
+- 不在 Web 层复制一套新的恢复逻辑
+- 不让前端直接持有敏感密钥
+
+
+---
+
+## Suggested Preflight
+
+Before opening a PR, run:
+
+```bash
+python scripts/release_preflight.py
+python scripts/release_preflight.py --build
+```
+
+This checks:
+- version consistency between `pyproject.toml` and `vulnclaw.__version__`
+- backend `pytest -q`
+- frontend `npx tsc -b`

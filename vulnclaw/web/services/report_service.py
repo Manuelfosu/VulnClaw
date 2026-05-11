@@ -1,0 +1,66 @@
+"""Report service for the Web UI backend."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+from vulnclaw.config.settings import SESSIONS_DIR, ensure_dirs
+from vulnclaw.report.generator import generate_report_from_target_state
+from vulnclaw.target_state.store import load_target_state
+from vulnclaw.web.schemas import ReportContentView
+
+
+def list_reports(limit: int = 50) -> list[dict[str, str]]:
+    """List recent reports from the sessions directory."""
+    ensure_dirs()
+    items: list[dict[str, str]] = []
+    for path in sorted(SESSIONS_DIR.glob("*.md"), key=lambda p: p.stat().st_mtime, reverse=True)[:limit]:
+        items.append(
+            {
+                "name": path.name,
+                "path": str(path.resolve()),
+                "kind": "markdown",
+            }
+        )
+    for path in sorted(SESSIONS_DIR.glob("*.html"), key=lambda p: p.stat().st_mtime, reverse=True)[:limit]:
+        items.append(
+            {
+                "name": path.name,
+                "path": str(path.resolve()),
+                "kind": "html",
+            }
+        )
+    return items[:limit]
+
+
+def generate_target_report(target: str, output_path: str | None = None) -> str:
+    """Generate a report from target state and return the saved path."""
+    raw = load_target_state(target)
+    if not raw:
+        raise FileNotFoundError(f"Target state not found: {target}")
+    path = generate_report_from_target_state(raw)
+    if output_path:
+        destination = Path(output_path)
+        destination.write_text(Path(path).read_text(encoding="utf-8"), encoding="utf-8")
+        return str(destination.resolve())
+    return str(Path(path).resolve())
+
+
+def read_report_content(path: str) -> ReportContentView:
+    """Read a report file for preview, limited to the sessions directory."""
+    ensure_dirs()
+    candidate = Path(path).resolve()
+    sessions_root = SESSIONS_DIR.resolve()
+
+    if sessions_root not in candidate.parents and candidate != sessions_root:
+        raise PermissionError(f"Report path is outside sessions dir: {candidate}")
+    if not candidate.exists():
+        raise FileNotFoundError(f"Report not found: {candidate}")
+
+    suffix = candidate.suffix.lower()
+    kind = "html" if suffix == ".html" else "markdown"
+    return ReportContentView(
+        path=str(candidate),
+        kind=kind,
+        content=candidate.read_text(encoding="utf-8"),
+    )

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
@@ -35,6 +36,9 @@ REPORT_TEMPLATE = """\
 {% endif %}
 - **误报排除**: {{ rejected_count }} 个
 - **待验证**: {{ pending_count }} 个（未在报告中显示）
+- **候选项**: {{ candidate_count }} 个
+- **待验证项**: {{ pending_verification_count }} 个
+- **需人工复核**: {{ manual_review_count }} 个
 - **攻击面**: {{ attack_surface_summary }}
 
 {% if rejected_count > 0 %}
@@ -86,9 +90,13 @@ REPORT_TEMPLATE = """\
 > ⚠️ **待验证** — 此漏洞由自动检测发现，尚未通过 PoC 验证。请手动审查。
 {% elif finding.verification_status == "rejected" %}
 > ❌ **已排除（误报）** — {{ finding.verification_note or "经验证为误报" }}
+{% elif finding.lifecycle_status == "needs_manual_review" %}
+> 🔎 **需人工复核** — 当前已有间接证据，但仍需人工复核后再升级为正式漏洞。
 {% endif %}
 
 - **漏洞类型**: {{ finding.vuln_type or "未分类" }}
+- **生命周期**: {{ finding.lifecycle_status or "pending_verification" }}
+- **证据等级**: {{ finding.evidence_level or "L1" }}
 - **CVE**: {{ finding.cve or "N/A" }}
 - **影响范围**: {{ finding.description or "无" }}
 {% if finding.evidence %}
@@ -166,29 +174,33 @@ REPORT_TEMPLATE = """\
 def generate_report(
     session: SessionState,
     output_path: Optional[str] = None,
-    llm_attack_summary: str = "",  # ★ LLM 生成的攻击路径摘要
+    llm_attack_summary: str = "",
     report_format: str = "markdown",
+    target_state_context: Optional[dict[str, Any]] = None,
 ) -> Path:
     """Generate a penetration test report from session state.
 
-    只包含已验证 (verified=True) 的漏洞。未验证的漏洞不会写入报告。
-
-    Args:
-        session: Current session state with findings.
-        output_path: Output file path. If None, auto-generate.
-
-    Returns:
-        Path to the generated report file.
+    Only verified findings are rendered into the main detailed findings section.
+    Pending, candidate, and rejected findings remain in summary/governance views.
     """
     from vulnclaw import __version__
 
-    # ★ 包含所有 findings（包括 pending 和 confirmed，不只是 verified）
     all_findings = session.findings
     verified_findings = session.get_verified_findings()
     pending_findings = session.get_pending_findings()
     rejected_findings = session.get_rejected_findings()
+    candidate_findings = session.get_candidate_findings() if hasattr(session, "get_candidate_findings") else []
+    pending_verification_findings = (
+        session.get_pending_verification_findings()
+        if hasattr(session, "get_pending_verification_findings")
+        else []
+    )
+    manual_review_findings = (
+        session.get_manual_review_findings()
+        if hasattr(session, "get_manual_review_findings")
+        else []
+    )
 
-    # Count verified findings by severity (only verified count toward real results)
     severity_counts = {"Critical": 0, "High": 0, "Medium": 0, "Low": 0, "Info": 0}
     for finding in verified_findings:
         sev = finding.severity
@@ -197,28 +209,38 @@ def generate_report(
         else:
             severity_counts["Medium"] += 1
 
-    # Generate recommendations from verified high/critical findings only
-    # Deduplicate by vuln_type: only one recommendation per vulnerability type
     seen_vuln_types = set()
     recommendations = []
     for finding in verified_findings:
         if finding.severity in ("Critical", "High"):
-            vt = finding.vuln_type or "未分类"
+            vt = finding.vuln_type or "???"
             if vt in seen_vuln_types:
-                continue  # Already have a rec for this vuln_type
+                continue
             seen_vuln_types.add(vt)
-            rec = finding.remediation or f"修复 {vt} 漏洞: {finding.title}"
+            rec = finding.remediation or f"?? {vt} ??: {finding.title}"
             recommendations.append(rec)
 
     if not recommendations:
-        recommendations.append("暂无高危发现，建议持续关注安全动态")
+        recommendations.append("?????????????????")
 
-    # Build template context
-    # ★ 攻击路径摘要（过滤 LLM 原始输出中的 think 标签 / 调试标记）
+    if output_path is None:
+        from vulnclaw.config.settings import SESSIONS_DIR
+        safe_target = (session.target or "unknown").replace("/", "_").replace(":", "_")
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_path = str(SESSIONS_DIR / f"report_{timestamp}_{safe_target}.md")
+
+    output = Path(output_path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+
+    from vulnclaw.report.poc_builder import generate_pocs
+    pocs_dir = output.parent / "pocs"
+    generate_pocs(session, pocs_dir)
+
     from vulnclaw.report.filter import ReportContentFilter
     filtered_summary = ReportContentFilter.filter(llm_attack_summary) if llm_attack_summary else ""
+
     context = {
-        "target": session.target or "未指定",
+        "target": session.target or "???",
         "started_at": session.started_at,
         "generated_at": datetime.now().isoformat(),
         "version": __version__,
@@ -228,31 +250,31 @@ def generate_report(
         "low_count": severity_counts["Low"] + severity_counts["Info"],
         "attack_surface_summary": _summarize_attack_surface(session),
         "key_recommendations": recommendations,
-        "findings": verified_findings,  # ★ 只包含已验证漏洞，pending/rejected 不写入详细发现章节
+        "verified_findings": [_build_report_finding(finding) for finding in verified_findings],
+        "findings": [_build_report_finding(finding) for finding in verified_findings],
         "executed_steps": session.executed_steps,
-        # ★ 额外统计信息
         "total_findings_submitted": len(all_findings),
         "verified_count": len(verified_findings),
         "rejected_count": len(rejected_findings),
         "pending_count": len(pending_findings),
+        "candidate_count": len(candidate_findings),
+        "pending_verification_count": len(pending_verification_findings),
+        "manual_review_count": len(manual_review_findings),
         "rejected_findings": rejected_findings,
         "step_summary": session.get_step_summary(),
         "llm_attack_summary": filtered_summary,
     }
 
-    # Render report
     template = Template(REPORT_TEMPLATE)
     report_content = template.render(**context)
+    if verified_findings:
+        report_content += "\n\n" + _render_verified_finding_details_clean(
+            verified_findings,
+            heading="## 6. 已验证漏洞定位与复现信息",
+        )
+    if target_state_context:
+        report_content += "\n\n" + _render_target_state_context(target_state_context)
 
-    # Determine output path
-    if output_path is None:
-        from vulnclaw.config.settings import SESSIONS_DIR
-        safe_target = (session.target or "unknown").replace("/", "_").replace(":", "_")
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_path = str(SESSIONS_DIR / f"report_{timestamp}_{safe_target}.md")
-
-    output = Path(output_path)
-    output.parent.mkdir(parents=True, exist_ok=True)
     if report_format.lower() == "html":
         html_content = Template(
             """<!doctype html><html><head><meta charset="utf-8"><title>VulnClaw Report</title></head><body><pre>{{ content }}</pre></body></html>"""
@@ -262,18 +284,26 @@ def generate_report(
     else:
         output.write_text(report_content, encoding="utf-8")
 
-    # Also generate PoC scripts
-    from vulnclaw.report.poc_builder import generate_pocs
-    pocs_dir = output.parent / "pocs"
-    generate_pocs(session, pocs_dir)
-
     return output
-
 
 def generate_report_from_file(session_path: str) -> Path:
     """Generate a report from a saved session JSON file."""
     session = SessionState.load(Path(session_path))
     return generate_report(session)
+
+
+def generate_report_from_target_state(target_state: dict[str, Any]) -> Path:
+    """Generate a report from a target-state snapshot."""
+    raw = dict(target_state)
+    target_state_context = {
+        "resume_meta": raw.pop("resume_meta", None),
+        "resume_summary": raw.pop("resume_summary", None),
+        "recon_meta": raw.pop("recon_meta", None),
+        "runtime_meta": raw.pop("runtime_meta", None),
+        "finding_meta": raw.pop("finding_meta", None),
+    }
+    session = SessionState(**raw)
+    return generate_report(session, target_state_context=target_state_context)
 
 
 def _summarize_attack_surface(session: SessionState) -> str:
@@ -321,8 +351,12 @@ CYCLE_REPORT_TEMPLATE = """\
 ### {{ loop.index }}. {{ finding.title }} — [{{ finding.severity }}]
 {% if finding.verification_status == "pending" %}
 > ⚠️ **待验证** — 此漏洞由自动检测发现，尚未通过 PoC 验证。
+{% elif finding.lifecycle_status == "needs_manual_review" %}
+> 🔎 **需人工复核** — 当前已有间接证据，但仍需人工复核后再升级为正式漏洞。
 {% endif %}
 - **漏洞类型**: {{ finding.vuln_type or "未分类" }}
+- **生命周期**: {{ finding.lifecycle_status or "pending_verification" }}
+- **证据等级**: {{ finding.evidence_level or "L1" }}
 - **CVE**: {{ finding.cve or "N/A" }}
 - **影响范围**: {{ finding.description or "无" }}
 {% if finding.evidence %}
@@ -346,7 +380,7 @@ CYCLE_REPORT_TEMPLATE = """\
 |---|---------|------|------|---------|------|
 {% for finding in all_findings %}
 {% set ev = (finding.evidence or finding.description or "")[:80] %}
-| {{ loop.index }} | {{ finding.title }} | {{ finding.severity }} | {{ finding.vuln_type or "—" }} | {{ ev if ev else "—" }} | {% if finding.verification_status == "verified" %}✅ 已验证{% elif finding.verification_status == "pending" %}⚠️ 待验证{% else %}❌ 已排除{% endif %} |
+| {{ loop.index }} | {{ finding.title }} | {{ finding.severity }} | {{ finding.vuln_type or "—" }} | {{ ev if ev else "—" }} | {% if finding.verification_status == "verified" %}✅ 已验证{% elif finding.lifecycle_status == "needs_manual_review" %}🔎 需人工复核{% elif finding.verification_status == "pending" %}⚠️ 待验证{% else %}❌ 已排除{% endif %} |
 {% endfor %}
 
 {% if not all_findings %}
@@ -452,6 +486,11 @@ def generate_persistent_cycle_report(
     # ★ 包含所有 findings（包括 pending 和 confirmed，不只是 verified）
     all_findings = session.findings
     verified_findings = session.get_verified_findings()
+    manual_review_findings = (
+        session.get_manual_review_findings()
+        if hasattr(session, "get_manual_review_findings")
+        else []
+    )
 
     # Count verified findings by severity only (pending doesn't count as real result)
     severity_counts = {"Critical": 0, "High": 0, "Medium": 0, "Low": 0, "Info": 0}
@@ -480,6 +519,21 @@ def generate_persistent_cycle_report(
     if not recommendations:
         recommendations.append("暂无高危发现，继续深入测试")
 
+    if output_path is None:
+        from vulnclaw.config.settings import SESSIONS_DIR
+        safe_target = (session.target or "unknown").replace("/", "_").replace(":", "_")
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_path = str(
+            SESSIONS_DIR / f"persistent_cycle{cycle_num:03d}_{timestamp}_{safe_target}.md"
+        )
+
+    output = Path(output_path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+
+    from vulnclaw.report.poc_builder import generate_pocs
+    pocs_dir = output.parent / "pocs"
+    generate_pocs(session, pocs_dir)
+
     # Recent steps (last 20 to avoid bloat)
     recent_steps = session.executed_steps[-20:]
 
@@ -505,6 +559,7 @@ def generate_persistent_cycle_report(
         "low_count": severity_counts["Low"] + severity_counts["Info"],
         "recent_steps": recent_steps,
         "recommendations": recommendations,
+        "manual_review_count": len(manual_review_findings),
         "step_summary": step_summary,
         "llm_attack_summary": filtered_summary,
     }
@@ -512,18 +567,177 @@ def generate_persistent_cycle_report(
     # Render report
     template = Template(CYCLE_REPORT_TEMPLATE)
     report_content = template.render(**context)
-
-    # Determine output path
-    if output_path is None:
-        from vulnclaw.config.settings import SESSIONS_DIR
-        safe_target = (session.target or "unknown").replace("/", "_").replace(":", "_")
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_path = str(
-            SESSIONS_DIR / f"persistent_cycle{cycle_num:03d}_{timestamp}_{safe_target}.md"
+    if verified_findings:
+        report_content += "\n\n" + _render_verified_finding_details_clean(
+            verified_findings,
+            heading="## 已验证漏洞定位与复现信息",
         )
-
-    output = Path(output_path)
-    output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(report_content, encoding="utf-8")
 
     return output
+
+
+def _render_target_state_context(target_state_context: dict[str, Any]) -> str:
+    """Render extra governance context for target-state based reports."""
+    resume_meta = target_state_context.get("resume_meta") or {}
+    recon_meta = target_state_context.get("recon_meta") or {}
+    runtime_meta = target_state_context.get("runtime_meta") or {}
+    resume_summary = target_state_context.get("resume_summary") or ""
+
+    lines = ["## 6. 目标历史治理上下文"]
+
+    if resume_meta:
+        lines.extend(
+            [
+                "",
+                f"- 恢复策略: {resume_meta.get('resume_strategy', 'unknown')}",
+                f"- 策略原因: {resume_meta.get('resume_strategy_reason', 'N/A')}",
+            ]
+        )
+        if resume_meta.get("priority_targets"):
+            lines.append(f"- 恢复优先目标: {', '.join(resume_meta['priority_targets'][:5])}")
+        if resume_meta.get("priority_recon_assets"):
+            lines.append(f"- 恢复优先侦察资产: {', '.join(resume_meta['priority_recon_assets'][:5])}")
+        if resume_meta.get("blocked_targets"):
+            lines.append(f"- 已阻塞目标: {', '.join(resume_meta['blocked_targets'][:5])}")
+        if resume_meta.get("failed_targets"):
+            lines.append(f"- 历史失败目标: {', '.join(resume_meta['failed_targets'][:5])}")
+        if resume_meta.get("recent_failed_steps"):
+            lines.append("- 最近失败路径/步骤:")
+            for item in resume_meta["recent_failed_steps"][:5]:
+                lines.append(f"  - {item}")
+
+    top_assets = _top_recon_assets_for_report(recon_meta)
+    if top_assets:
+        lines.extend(["", "### 高价值侦察资产"])
+        for item in top_assets[:8]:
+            lines.append(f"- {item}")
+
+    if runtime_meta.get("current_attack_path"):
+        lines.extend(["", f"- 最近攻击路径: {runtime_meta['current_attack_path']}"])
+
+    if resume_summary:
+        lines.extend(["", "### 恢复摘要", "```text", resume_summary.strip(), "```"])
+
+    return "\n".join(lines)
+
+
+def _top_recon_assets_for_report(recon_meta: dict[str, Any]) -> list[str]:
+    ranked: list[tuple[float, str]] = []
+    for category, items in recon_meta.items():
+        if not isinstance(items, dict):
+            continue
+        for value, meta in items.items():
+            confidence = float(meta.get("confidence", 0))
+            ranked.append((confidence, f"{category}:{value} (conf={confidence:.2f})"))
+    ranked.sort(key=lambda item: (-item[0], item[1]))
+    return [label for _, label in ranked]
+
+
+def _extract_location_summary_clean(finding: VulnerabilityFinding) -> str:
+    text = " ".join(part for part in [finding.evidence or "", finding.description or ""] if part)
+    urls = re.findall(r'https?://[^\s<>"\')\]]+', text)
+    paths = re.findall(r'(?:/[\w%&=?\-]+)+', text)
+
+    items: list[str] = []
+    seen: set[str] = set()
+    for value in urls + paths:
+        if value not in seen:
+            seen.add(value)
+            items.append(value)
+        if len(items) >= 4:
+            break
+    return " | ".join(items)
+
+
+def _build_repro_summary_clean(finding: VulnerabilityFinding) -> str:
+    parts: list[str] = []
+    if finding.poc_script:
+        parts.append(f"运行 PoC 脚本: {finding.poc_script}")
+    if finding.verification_note:
+        parts.append(f"验证说明: {finding.verification_note}")
+    elif finding.evidence:
+        parts.append(f"根据已验证证据复现: {finding.evidence[:160]}")
+    if finding.verified_at:
+        parts.append(f"验证时间: {finding.verified_at}")
+    return "；".join(parts) if parts else "暂无可用复现说明"
+
+
+def _render_verified_finding_details_clean(findings: list[VulnerabilityFinding], heading: str) -> str:
+    lines = [heading, ""]
+    for idx, finding in enumerate(findings, 1):
+        location = _extract_location_summary_clean(finding) or "未定位 / 未提取到 URL"
+        lines.append(f"### {idx}. {finding.title} [{finding.severity}]")
+        lines.append(f"- 漏洞类型: {finding.vuln_type or '未分类'}")
+        lines.append(f"- 生命周期: {finding.lifecycle_status or 'verified'}")
+        lines.append(f"- 证据等级: {finding.evidence_level or 'L4'}")
+        lines.append(f"- 位置 / URL: {location}")
+        if finding.evidence:
+            lines.append(f"- 验证证据: {finding.evidence}")
+        lines.append(f"- 复现 / PoC: {_build_repro_summary_clean(finding)}")
+        lines.append("")
+    return "\n".join(lines).rstrip()
+
+
+def _extract_location_summary(finding: VulnerabilityFinding) -> str:
+    text = " ".join(part for part in [finding.evidence or "", finding.description or ""] if part)
+    urls = re.findall(r'https?://[^\s<>"\')\]]+', text)
+    paths = re.findall(r'(?:/[\w%&=?\-]+)+', text)
+
+    items: list[str] = []
+    seen: set[str] = set()
+    for value in urls + paths:
+        if value not in seen:
+            seen.add(value)
+            items.append(value)
+        if len(items) >= 4:
+            break
+    return " | ".join(items)
+
+
+def _build_repro_summary(finding: VulnerabilityFinding) -> str:
+    parts: list[str] = []
+    if finding.poc_script:
+        parts.append(f"杩愯 PoC 鑴氭湰: {finding.poc_script}")
+    if finding.verification_note:
+        parts.append(f"楠岃瘉璇存槑: {finding.verification_note}")
+    elif finding.evidence:
+        parts.append(f"鏍规嵁宸查獙璇佽瘉鎹鐜? {finding.evidence[:160]}")
+    if finding.verified_at:
+        parts.append(f"楠岃瘉鏃堕棿: {finding.verified_at}")
+    return "锛? ".join(parts) if parts else "鏆傛棤鍙敤澶嶇幇璇存槑"
+
+
+def _build_report_finding(finding: VulnerabilityFinding) -> dict[str, Any]:
+    return {
+        "title": finding.title,
+        "severity": finding.severity,
+        "vuln_type": finding.vuln_type,
+        "description": finding.description,
+        "evidence": finding.evidence,
+        "cve": finding.cve,
+        "remediation": finding.remediation,
+        "poc_script": finding.poc_script,
+        "verified": finding.verified,
+        "verified_at": finding.verified_at,
+        "verification_status": finding.verification_status,
+        "verification_note": finding.verification_note,
+        "lifecycle_status": finding.lifecycle_status,
+        "evidence_level": finding.evidence_level,
+        "location_summary": _extract_location_summary(finding),
+        "repro_summary": _build_repro_summary(finding),
+    }
+
+
+def _render_verified_finding_details(findings: list[VulnerabilityFinding], heading: str) -> str:
+    lines = [heading, ""]
+    for idx, finding in enumerate(findings, 1):
+        location = _extract_location_summary(finding) or "鏈畾浣? / 鏈彁鍙栧埌 URL"
+        lines.append(f"### {idx}. {finding.title} [{finding.severity}]")
+        lines.append(f"- 婕忔礊绫诲瀷: {finding.vuln_type or '鏈垎绫?'}")
+        lines.append(f"- 浣嶇疆 / URL: {location}")
+        if finding.evidence:
+            lines.append(f"- 楠岃瘉璇佹嵁: {finding.evidence}")
+        lines.append(f"- 澶嶇幇 / PoC: {_build_repro_summary(finding)}")
+        lines.append("")
+    return "\n".join(lines).rstrip()

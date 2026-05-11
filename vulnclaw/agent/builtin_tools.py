@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import re
 import shutil
@@ -33,6 +34,34 @@ RESERVED_IP_RANGES: list[tuple[str, str, str]] = [
     ("0.0.0.0", "0.255.255.255", "RFC 1122 当前网络"),
     ("224.0.0.0", "239.255.255.255", "RFC 5771 多播地址"),
     ("240.0.0.0", "255.255.255.255", "RFC 1112 保留地址"),
+]
+
+SAFE_MODE_PATTERNS: list[str] = [
+    r"open\s*\(",
+    r"with\s+open\s*\(",
+    r"socket\.",
+    r"urllib",
+    r"http\.client",
+    r"ftplib",
+    r"smtplib",
+    r"requests\.",
+    r"import\s+os",
+    r"from\s+os\s+import",
+    r"import\s+subprocess",
+    r"from\s+subprocess\s+import",
+    r"import\s+shutil",
+    r"from\s+shutil\s+import",
+    r"import\s+pathlib",
+    r"from\s+pathlib\s+import",
+    r"__import__",
+]
+
+LAB_MODE_PATTERNS: list[str] = [
+    r"import\s+subprocess",
+    r"from\s+subprocess\s+import",
+    r"os\.\s*system\s*\(",
+    r"subprocess\.\s*Popen\s*\(",
+    r"shutil\.\s*rmtree\s*\(",
 ]
 
 
@@ -81,6 +110,26 @@ async def execute_mcp_tool(agent: Any, tool_name: str, args: dict[str, Any]) -> 
 
     try:
         result = await agent.mcp_manager.call_tool(tool_name, args)
+        if isinstance(result, dict):
+            if result.get("ok", False):
+                content = result.get("content")
+                structured = result.get("structured_content")
+                summary_parts: list[str] = []
+                if content is not None:
+                    summary_parts.append(str(content))
+                if isinstance(structured, dict) and structured:
+                    summary_parts.append(f"[structured] {json.dumps(structured, ensure_ascii=False)}")
+                if summary_parts:
+                    return "\n".join(summary_parts)
+                return f"[tool:{tool_name}] completed"
+
+            message = str(result.get("message") or "")
+            suggestion = str(result.get("suggestion") or "")
+            error_type = str(result.get("error_type") or "error")
+            if suggestion:
+                return f"[{error_type}] {message}\n[suggestion] {suggestion}".strip()
+            return f"[{error_type}] {message}".strip()
+
         return str(result)
     except Exception as e:
         return f"[!] 工具执行错误 ({tool_name}): {e}"
@@ -378,57 +427,102 @@ def parse_nmap_xml(xml_output: str, target: str) -> str:
     return "\n".join(lines) or f"nmap 扫描完成（无输出）: {target}"
 
 
+def _resolve_python_execute_mode(agent: Any) -> str:
+    safety = getattr(agent.config, "safety", None)
+    if safety is None:
+        return "trusted-local"
+
+    mode = str(getattr(safety, "python_execute_mode", "") or "").strip().lower()
+    if not mode and getattr(safety, "python_execute_restricted", False):
+        return "safe"
+    if mode in {"safe", "lab", "trusted-local"}:
+        return mode
+    return "trusted-local"
+
+
+def _validate_python_execute_mode(mode: str, code: str) -> str | None:
+    patterns = SAFE_MODE_PATTERNS if mode == "safe" else LAB_MODE_PATTERNS if mode == "lab" else []
+    for pattern in patterns:
+        if re.search(pattern, code, re.IGNORECASE):
+            return pattern
+    return None
+
+
+def _write_python_audit(
+    agent: Any,
+    *,
+    purpose: str,
+    code: str,
+    mode: str,
+    outcome: str,
+    blocked_reason: str = "",
+) -> None:
+    safety = getattr(agent.config, "safety", None)
+    if safety is None or not getattr(safety, "python_execute_audit_enabled", True):
+        return
+
+    try:
+        from datetime import datetime
+        from vulnclaw.config.settings import PYTHON_EXECUTE_AUDIT_FILE, ensure_dirs
+
+        ensure_dirs()
+        record = {
+            "timestamp": datetime.now().isoformat(),
+            "target": getattr(getattr(agent, "session_state", None), "target", None),
+            "mode": mode,
+            "purpose": purpose,
+            "outcome": outcome,
+            "blocked_reason": blocked_reason,
+            "code_preview": code[:300],
+            "code_lines": code.count("\n") + 1,
+        }
+        with open(PYTHON_EXECUTE_AUDIT_FILE, "a", encoding="utf-8") as f:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+    except Exception:
+        return
+
+
 async def execute_python(agent: Any, args: dict[str, Any]) -> str:
     code = args.get("code", "")
     purpose = args.get("purpose", "")
     if not code.strip():
-        return "[!] 代码为空，未执行"
+        return "[!] Code is empty; nothing executed"
 
-    if not getattr(agent.config, "safety", None) or not agent.config.safety.enable_python_execute:
-        return "[!] python_execute 已被禁用。如需启用，请在配置中设置 safety.enable_python_execute = true"
+    safety = getattr(agent.config, "safety", None)
+    if safety is None or not safety.enable_python_execute:
+        return "[!] python_execute is disabled. Set safety.enable_python_execute = true to enable it"
 
-    max_lines = getattr(getattr(agent.config, "safety", None), "python_execute_max_lines", 50)
+    mode = _resolve_python_execute_mode(agent)
+    max_lines = getattr(safety, "python_execute_max_lines", 50)
     if code.count("\n") + 1 > max_lines:
-        return f"[!] 代码行数超过限制（{max_lines} 行），请拆分或精简脚本"
+        _write_python_audit(agent, purpose=purpose, code=code, mode=mode, outcome="blocked", blocked_reason="max_lines")
+        return f"[!] Code exceeds the max line limit ({max_lines})"
 
-    show_warning = getattr(getattr(agent.config, "safety", None), "python_execute_show_warning", True)
+    show_warning = getattr(safety, "python_execute_show_warning", True)
     warning_prefix = ""
     if show_warning:
         warning_prefix = (
-            "⚠️ 安全警告：python_execute 将在本地以当前用户权限执行 Python 代码。\n"
-            "请确保你信任此命令的来源，且代码不会破坏系统或泄露敏感数据。\n"
+            f"[!] Security warning: python_execute runs local Python code in {mode} mode.\n"
+            "Review the code carefully before execution.\n"
             "---\n"
         )
 
-    recon_keywords = ["recon", "信息收集", "侦察", "枚举", "扫描", "crawl", "spider", "目录", "子域名", "端口", "指纹", "收集"]
+    recon_keywords = ["recon", "crawl", "spider", "scan", "enum", "probe"]
     timeout_seconds = 60 if any(kw in purpose.lower() for kw in recon_keywords) else 30
 
     for pattern in BLOCKED_PATTERNS:
         if re.search(pattern, code):
-            return f"[!] 代码包含被禁止的操作模式: {pattern}，出于安全原因拒绝执行"
+            _write_python_audit(agent, purpose=purpose, code=code, mode=mode, outcome="blocked", blocked_reason=pattern)
+            return f"[!] Code contains a blocked operation pattern: {pattern}"
 
-    restricted = getattr(getattr(agent.config, "safety", None), "python_execute_restricted", False)
-    if restricted:
-        restricted_patterns = [
-            r"open\s*\(",
-            r"with\s+open\s*\(",
-            r"socket\.",
-            r"urllib",
-            r"http\.client",
-            r"ftplib",
-            r"smtplib",
-            r"import\s+os",
-            r"from\s+os\s+import",
-            r"import\s+subprocess",
-            r"from\s+subprocess\s+import",
-            r"import\s+shutil",
-            r"from\s+shutil\s+import",
-            r"__import__",
-        ]
-        for pattern in restricted_patterns:
-            if re.search(pattern, code, re.IGNORECASE):
-                return f"[!] 受限模式下禁止的操作: {pattern}\n提示：如需执行文件/网络操作，请关闭 restricted 模式或改用其他工具。"
+    blocked_pattern = _validate_python_execute_mode(mode, code)
+    if blocked_pattern:
+        _write_python_audit(agent, purpose=purpose, code=code, mode=mode, outcome="blocked", blocked_reason=blocked_pattern)
+        if mode == "safe":
+            return f"[!] safe mode blocked operation: {blocked_pattern}"
+        return f"[!] lab mode blocked operation: {blocked_pattern}"
 
+    max_output_chars = getattr(safety, "python_execute_max_output_chars", 8000)
     tmp_path = ""
     try:
         with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False, encoding="utf-8") as f:
@@ -442,6 +536,9 @@ async def execute_python(agent: Any, args: dict[str, Any]) -> str:
             f.write(code)
             tmp_path = f.name
 
+        base_env = {"PYTHONIOENCODING": "utf-8"}
+        env = {**os.environ, **base_env} if mode == "trusted-local" else base_env
+
         loop = asyncio.get_event_loop()
         result = await loop.run_in_executor(
             None,
@@ -453,7 +550,7 @@ async def execute_python(agent: Any, args: dict[str, Any]) -> str:
                 errors="replace",
                 timeout=timeout_seconds,
                 cwd=tempfile.gettempdir(),
-                env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+                env=env,
             ),
         )
 
@@ -466,29 +563,38 @@ async def execute_python(agent: Any, args: dict[str, Any]) -> str:
         if result.stdout:
             output_parts.append(result.stdout)
         if result.stderr:
-            stderr_lines = [line for line in result.stderr.splitlines() if "ImportError" not in line and "No module named" not in line]
+            stderr_lines = [
+                line
+                for line in result.stderr.splitlines()
+                if "ImportError" not in line and "No module named" not in line
+            ]
             if stderr_lines:
                 output_parts.append("[stderr]\n" + "\n".join(stderr_lines))
 
         if not output_parts:
-            return "[✓] 代码执行成功，无输出"
+            _write_python_audit(agent, purpose=purpose, code=code, mode=mode, outcome="success")
+            return f"{warning_prefix}[+] Python executed successfully with no output"
 
         output = "\n".join(output_parts)
         for sig in ["[DONE]", "[COMPLETE]"]:
             output = output.replace(sig, f"[BLOCKED_{sig[1:-1]}]")
-        if len(output) > 8000:
-            output = output[:4000] + "\n...[中间省略]...\n" + output[-4000:]
-        return f"{warning_prefix}[✓] Python 执行结果:\n{output}"
+        if len(output) > max_output_chars:
+            clip = max_output_chars // 2
+            output = output[:clip] + "\n...[truncated]...\n" + output[-clip:]
+        _write_python_audit(agent, purpose=purpose, code=code, mode=mode, outcome="success")
+        return f"{warning_prefix}[+] Python execution result ({mode}):\n{output}"
     except subprocess.TimeoutExpired:
         try:
             os.unlink(tmp_path)
         except OSError:
             pass
         agent.runtime.python_timeout_rounds += 1
-        return f"[!] Python 执行超时（{timeout_seconds}秒），请简化代码或分步执行，禁止写超过10行的复杂脚本"
+        _write_python_audit(agent, purpose=purpose, code=code, mode=mode, outcome="timeout")
+        return f"[!] Python execution timed out after {timeout_seconds} seconds"
     except Exception as e:
         try:
             os.unlink(tmp_path)
         except OSError:
             pass
-        return f"[!] Python 执行错误: {e}"
+        _write_python_audit(agent, purpose=purpose, code=code, mode=mode, outcome="error", blocked_reason=str(e))
+        return f"[!] Python execution error: {e}"

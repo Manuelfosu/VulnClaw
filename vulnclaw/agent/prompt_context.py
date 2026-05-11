@@ -52,6 +52,10 @@ def build_round_context(agent: Any, round_num: int, max_rounds: int) -> str:
     if state.recon_data:
         recon_summary = f"\n侦察数据: {list(state.recon_data.keys())}"
 
+    resume_summary = ""
+    if getattr(state, "resume_summary", ""):
+        resume_summary = f"\n\n{state.resume_summary}"
+
     notes_summary = ""
     if state.notes:
         notes_summary = f"\n重要笔记: {'; '.join(state.notes[-5:])}"
@@ -241,6 +245,7 @@ def build_round_context(agent: Any, round_num: int, max_rounds: int) -> str:
         f"{steps_summary}"
         f"{failed_summary}"
         f"{recon_summary}"
+        f"{resume_summary}"
         f"{notes_summary}"
         f"{path_warning}"
         f"{path_switch_warning}"

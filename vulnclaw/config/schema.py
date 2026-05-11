@@ -126,6 +126,10 @@ class SafetyConfig(BaseModel):
         default=False,
         description="Restricted mode: block file I/O and network in python_execute",
     )
+    python_execute_mode: str = Field(
+        default="trusted-local",
+        description="Execution mode for python_execute: safe, lab, trusted-local",
+    )
     python_execute_max_lines: int = Field(
         default=50,
         description="Max lines of code allowed per python_execute call",
@@ -133,6 +137,14 @@ class SafetyConfig(BaseModel):
     python_execute_show_warning: bool = Field(
         default=True,
         description="Show a security warning before each python_execute invocation",
+    )
+    python_execute_max_output_chars: int = Field(
+        default=8000,
+        description="Max stdout/stderr characters returned from a python_execute call",
+    )
+    python_execute_audit_enabled: bool = Field(
+        default=True,
+        description="Write python_execute audit records to the local config directory",
     )
 
 

@@ -27,13 +27,16 @@ from .schema import (
 CONFIG_DIR = Path(os.environ.get("VULNCLAW_CONFIG_DIR", str(Path.home() / ".vulnclaw")))
 CONFIG_FILE = CONFIG_DIR / "config.yaml"
 SESSIONS_DIR = CONFIG_DIR / "sessions"
+TARGETS_DIR = CONFIG_DIR / "targets"
 KB_DIR = CONFIG_DIR / "kb"
 SKILLS_DIR = CONFIG_DIR / "skills"
+WEB_TASKS_FILE = CONFIG_DIR / "web_tasks.json"
+PYTHON_EXECUTE_AUDIT_FILE = CONFIG_DIR / "python_execute_audit.jsonl"
 
 
 def ensure_dirs() -> None:
     """Create VulnClaw config directories if they don't exist."""
-    for d in [CONFIG_DIR, SESSIONS_DIR, KB_DIR, SKILLS_DIR]:
+    for d in [CONFIG_DIR, SESSIONS_DIR, TARGETS_DIR, KB_DIR, SKILLS_DIR]:
         d.mkdir(parents=True, exist_ok=True)
 
 
@@ -161,8 +164,9 @@ def _overlay_env(config: VulnClawConfig) -> VulnClawConfig:
     Supported env vars (prefix VULNCLAW_):
         LLM:        API_KEY, BASE_URL, MODEL, PROVIDER, MAX_TOKENS, TEMPERATURE
         Session:    OUTPUT_DIR, AUTO_SAVE, REPORT_FORMAT, MAX_ROUNDS, SHOW_THINKING
-        Safety:     PYTHON_EXECUTE_ENABLED, PYTHON_EXECUTE_RESTRICTED,
-                    PYTHON_EXECUTE_MAX_LINES, PYTHON_EXECUTE_SHOW_WARNING
+        Safety:     PYTHON_EXECUTE_ENABLED, PYTHON_EXECUTE_RESTRICTED, PYTHON_EXECUTE_MODE,
+                    PYTHON_EXECUTE_MAX_LINES, PYTHON_EXECUTE_SHOW_WARNING,
+                    PYTHON_EXECUTE_MAX_OUTPUT_CHARS, PYTHON_EXECUTE_AUDIT_ENABLED
     """
     # ── LLM ──────────────────────────────────────────────────────────
     if v := os.environ.get("VULNCLAW_LLM_API_KEY"):
@@ -198,11 +202,18 @@ def _overlay_env(config: VulnClawConfig) -> VulnClawConfig:
         config.safety.enable_python_execute = v.lower() in ("1", "true", "yes", "on")
     if v := os.environ.get("VULNCLAW_SAFETY_PYTHON_EXECUTE_RESTRICTED"):
         config.safety.python_execute_restricted = v.lower() in ("1", "true", "yes", "on")
+    if v := os.environ.get("VULNCLAW_SAFETY_PYTHON_EXECUTE_MODE"):
+        config.safety.python_execute_mode = v
     if v := os.environ.get("VULNCLAW_SAFETY_PYTHON_EXECUTE_MAX_LINES"):
         with suppress(ValueError):
             config.safety.python_execute_max_lines = int(v)
     if v := os.environ.get("VULNCLAW_SAFETY_PYTHON_EXECUTE_SHOW_WARNING"):
         config.safety.python_execute_show_warning = v.lower() in ("1", "true", "yes", "on")
+    if v := os.environ.get("VULNCLAW_SAFETY_PYTHON_EXECUTE_MAX_OUTPUT_CHARS"):
+        with suppress(ValueError):
+            config.safety.python_execute_max_output_chars = int(v)
+    if v := os.environ.get("VULNCLAW_SAFETY_PYTHON_EXECUTE_AUDIT_ENABLED"):
+        config.safety.python_execute_audit_enabled = v.lower() in ("1", "true", "yes", "on")
 
     return config
 

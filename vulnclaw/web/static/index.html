@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VulnClaw Web UI</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --panel: #111827;
+      --line: #334155;
+      --text: #e5e7eb;
+      --muted: #94a3b8;
+      --accent: #f97316;
+      --accent-2: #22c55e;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", "Noto Sans SC", sans-serif;
+      background: radial-gradient(circle at top left, #172554 0%, var(--bg) 38%);
+      color: var(--text);
+    }
+    .wrap {
+      max-width: 1000px;
+      margin: 0 auto;
+      padding: 40px 20px 80px;
+    }
+    .hero, .panel {
+      background: rgba(17, 24, 39, 0.92);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      padding: 24px;
+      box-shadow: 0 24px 80px rgba(0, 0, 0, 0.32);
+    }
+    .hero h1 { margin: 0 0 10px; font-size: 34px; }
+    .hero p { margin: 0; color: var(--muted); line-height: 1.6; }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 18px;
+      margin-top: 20px;
+    }
+    .panel h2 { margin: 0 0 10px; font-size: 18px; color: #fff; }
+    .panel p, .panel li { color: var(--muted); line-height: 1.6; }
+    code {
+      background: rgba(15, 23, 42, 0.9);
+      border: 1px solid #1e293b;
+      padding: 2px 6px;
+      border-radius: 8px;
+      color: #f8fafc;
+    }
+    .tag {
+      display: inline-block;
+      padding: 5px 10px;
+      border-radius: 999px;
+      border: 1px solid rgba(249, 115, 22, 0.35);
+      color: var(--accent);
+      margin-bottom: 12px;
+      font-size: 13px;
+    }
+    .good { color: var(--accent-2); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <section class="hero">
+      <div class="tag">VulnClaw Web Phase 1</div>
+      <h1>VulnClaw Web 控制台骨架已启动</h1>
+      <p>当前版本已提供本地 Web API、任务骨架、目标状态查询、快照查询与 target 报告生成接口。React 前端仍待后续阶段接入，这一页是 Phase 1 的最小占位控制台。</p>
+    </section>
+
+    <section class="grid">
+      <article class="panel">
+        <h2>当前状态</h2>
+        <p class="good">已具备基础 Web 后端能力</p>
+        <ul>
+          <li><code>GET /api/health</code></li>
+          <li><code>GET /api/config</code></li>
+          <li><code>GET /api/targets</code></li>
+          <li><code>POST /api/tasks/run</code></li>
+        </ul>
+      </article>
+      <article class="panel">
+        <h2>目标管理</h2>
+        <p>可以通过 API 查询 target state、snapshot 列表，并执行 rollback / clear 操作。</p>
+      </article>
+      <article class="panel">
+        <h2>任务流</h2>
+        <p>任务创建后会进入内存任务管理器，并通过 <code>SSE</code> 事件流提供实时状态输出。</p>
+      </article>
+    </section>
+  </div>
+</body>
+</html>

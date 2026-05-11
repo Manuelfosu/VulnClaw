@@ -34,6 +34,11 @@ class VulnerabilityFinding(BaseModel):
     cve: Optional[str] = Field(default=None, description="Associated CVE ID")
     remediation: str = Field(default="", description="Fix recommendation")
     poc_script: Optional[str] = Field(default=None, description="Generated PoC script path")
+    evidence_level: str = Field(default="L1", description="L1-L4 evidence strength")
+    lifecycle_status: str = Field(
+        default="candidate",
+        description="candidate/pending_verification/verified/rejected/needs_manual_review",
+    )
 
     # ★ 漏洞验证状态追踪
     verified: bool = Field(default=False, description="是否已通过 PoC 验证")
@@ -60,6 +65,48 @@ class VulnerabilityFinding(BaseModel):
         # ★ 生成唯一标识
         if not self.finding_id:
             self.finding_id = self._generate_finding_id()
+        self._sync_status_fields()
+
+    def _sync_status_fields(self) -> None:
+        """Keep lifecycle and evidence metadata consistent with verification state."""
+        if self.verified or self.verification_status == "verified":
+            self.verified = True
+            self.verification_status = "verified"
+            self.lifecycle_status = "verified"
+            if self.evidence_level in ("", "L1", "L2", "L3"):
+                self.evidence_level = "L4"
+            return
+
+        if self.verification_status == "rejected":
+            self.verified = False
+            self.lifecycle_status = "rejected"
+            if self.evidence_level in ("", "L1", "L2"):
+                self.evidence_level = "L3"
+            return
+
+        self.verified = False
+        self.verification_status = "pending"
+        if self.lifecycle_status == "needs_manual_review":
+            if self.evidence_level in ("", "L1"):
+                self.evidence_level = "L2"
+            return
+        if self.lifecycle_status == "candidate":
+            self.evidence_level = self.evidence_level or "L1"
+            return
+        if self.evidence_level in ("", "L1"):
+            self.lifecycle_status = "candidate"
+            self.evidence_level = "L1"
+        else:
+            self.lifecycle_status = "pending_verification"
+
+    def mark_manual_review(self, note: str = "", evidence_level: str = "L2") -> None:
+        """Mark a finding as requiring manual review."""
+        self.verified = False
+        self.verification_status = "pending"
+        self.lifecycle_status = "needs_manual_review"
+        self.evidence_level = evidence_level
+        if note:
+            self.verification_note = note
 
     def _generate_finding_id(self) -> str:
         """Generate unique vulnerability identifier for deduplication.
@@ -87,19 +134,23 @@ class VulnerabilityFinding(BaseModel):
             return f"{self.vuln_type}_{location}"[:50]
         return self.vuln_type[:50]
 
-    def mark_verified(self, note: str = "") -> None:
+    def mark_verified(self, note: str = "", evidence_level: str = "L4") -> None:
         """标记漏洞为已验证."""
         from datetime import datetime
         self.verified = True
         self.verification_status = "verified"
+        self.lifecycle_status = "verified"
+        self.evidence_level = evidence_level
         self.verified_at = datetime.now().isoformat()
         self.verification_note = note
 
-    def mark_rejected(self, reason: str) -> None:
+    def mark_rejected(self, reason: str, evidence_level: str = "L3") -> None:
         """标记漏洞为已拒绝（误报）."""
         from datetime import datetime
         self.verified = False
         self.verification_status = "rejected"
+        self.lifecycle_status = "rejected"
+        self.evidence_level = evidence_level
         self.verified_at = datetime.now().isoformat()
         self.verification_note = reason
 
@@ -149,6 +200,8 @@ class SessionState(BaseModel):
     target: Optional[str] = None
     phase: PentestPhase = PentestPhase.IDLE
     started_at: str = Field(default_factory=lambda: datetime.now().isoformat())
+    resume_summary: str = Field(default="", description="恢复时注入的历史成果摘要")
+    resume_meta: dict[str, Any] = Field(default_factory=dict, description="恢复元信息")
     findings: list[VulnerabilityFinding] = Field(default_factory=list)
     recon_data: dict[str, Any] = Field(default_factory=dict)
     # ★ 原始步骤日志（向后兼容）
@@ -181,6 +234,8 @@ class SessionState(BaseModel):
             True if finding was added, False if duplicate (skipped).
         """
         # 生成 finding_id（如果还没有）
+        if hasattr(finding, "_sync_status_fields"):
+            finding._sync_status_fields()
         if not finding.finding_id:
             finding.finding_id = finding._generate_finding_id()
 
@@ -208,6 +263,30 @@ class SessionState(BaseModel):
     def get_pending_findings(self) -> list[VulnerabilityFinding]:
         """获取待验证的漏洞列表."""
         return [f for f in self.findings if f.verification_status == "pending"]
+
+    def get_candidate_findings(self) -> list[VulnerabilityFinding]:
+        """Get findings that are still low-confidence candidates."""
+        return [f for f in self.findings if f.lifecycle_status == "candidate"]
+
+    def get_pending_verification_findings(self) -> list[VulnerabilityFinding]:
+        """Get findings that have some evidence but still need verification."""
+        return [f for f in self.findings if f.lifecycle_status == "pending_verification"]
+
+    def get_manual_review_findings(self) -> list[VulnerabilityFinding]:
+        """Get findings that require explicit or implicit manual review."""
+        return [
+            f
+            for f in self.findings
+            if (
+                f.lifecycle_status == "needs_manual_review"
+                or (
+                    not f.verified
+                    and f.verification_status != "rejected"
+                    and f.severity in {"Critical", "High"}
+                    and f.lifecycle_status in {"candidate", "pending_verification"}
+                )
+            )
+        ]
 
     def add_recon_subdomain(self, subdomain: str) -> None:
         """Record a discovered subdomain into recon_data['subdomains'].

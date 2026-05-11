@@ -32,8 +32,12 @@ def extract_response(message: Any) -> str:
 def _is_non_retriable_llm_error(error_text: str) -> bool:
     """Return True for configuration/auth errors that should fail fast."""
     hard_fail_markers = [
+        "bad_request_error",
         "incorrect api key",
         "invalid api key",
+        "invalid chat setting",
+        "invalid function arguments json string",
+        "tool_call_id",
         "authentication",
         "unauthorized",
         "permission denied",
@@ -90,6 +94,19 @@ def _prepend_retry_notice(text: str, retry_attempts: int) -> str:
     if retry_attempts <= 0:
         return text
     return f"[LLM恢复] 本轮在第 {retry_attempts} 次重连后恢复。\n{text}"
+
+
+def _format_tool_results_fallback(tool_results: list[dict[str, Any]], skipped_info: list[str]) -> str:
+    """Build a plain-text fallback summary when provider tool-summary format is incompatible."""
+    parts = ["[tool results processed] 当前提供商不兼容标准工具总结回传，已降级为纯文本结果摘要："]
+    for item in tool_results:
+        content = item.get("content", "") if isinstance(item, dict) else str(item)
+        if len(content) > 800:
+            content = content[:400] + "\n...[中间省略]...\n" + content[-400:]
+        parts.append(content)
+    if skipped_info:
+        parts.append("⚠️ 本轮跳过: " + "; ".join(skipped_info))
+    return "\n".join(parts)
 
 
 async def call_llm(agent: Any, system_prompt: str) -> str:
@@ -204,6 +221,11 @@ async def call_llm_auto(agent: Any, system_prompt: str, round_context: str) -> s
             if len(content) > 1000:
                 content = content[:500] + "\n...[中间省略]...\n" + content[-500:]
             tool_summary_parts.append(f"工具结果: {content}")
+            if isinstance(tr, dict) and isinstance(tr.get("structured_content"), dict) and tr["structured_content"]:
+                structured = json.dumps(tr["structured_content"], ensure_ascii=False)
+                if len(structured) > 1000:
+                    structured = structured[:500] + "\n...[中间省略]...\n" + structured[-500:]
+                tool_summary_parts.append(f"结构化结果: {structured}")
         if skipped_info:
             tool_summary_parts.append(f"⚠️ 本轮跳过: {'; '.join(skipped_info)}")
         agent.context.add_assistant_message(" | ".join(tool_summary_parts))
@@ -219,6 +241,11 @@ async def call_llm_auto(agent: Any, system_prompt: str, round_context: str) -> s
             agent.context.add_assistant_message(final_text)
             return _prepend_retry_notice(final_text, retry_attempts + second_retry_attempts)
         except Exception as e2:
+            error_text = str(e2).lower()
+            if _is_non_retriable_llm_error(error_text):
+                fallback = _format_tool_results_fallback(tool_results, skipped_info)
+                agent.context.add_assistant_message(fallback)
+                return fallback
             return f"[tool results processed] 继续分析错误: {e2}"
 
     return _prepend_retry_notice(extract_response(choice.message), retry_attempts)
