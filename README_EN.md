@@ -12,7 +12,7 @@
 [![Security](https://img.shields.io/badge/Scope-Authorized_Only-red)](#-security-notice)
 <br>
 
-**Not a script collection — it's a fully autonomous AI Penetration Testing Agent.**
+**This project is a standalone AI penetration testing Agent.**
 
 <br>
 
