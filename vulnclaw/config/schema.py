@@ -21,6 +21,11 @@ class LLMProvider(str, Enum):
     MOONSHOT = "moonshot"
     QWEN = "qwen"
     SILICONFLOW = "siliconflow"
+    DOUBAO = "doubao"
+    BAICHUAN = "baichuan"
+    STEPFUN = "stepfun"
+    SENSETIME = "sensetime"
+    YI = "yi"
     CUSTOM = "custom"
 
 
@@ -61,6 +66,31 @@ PROVIDER_PRESETS: dict[LLMProvider, dict[str, str]] = {
         "default_model": "deepseek-ai/DeepSeek-V3",
         "label": "SiliconFlow",
     },
+    LLMProvider.DOUBAO: {
+        "base_url": "https://ark.cn-beijing.volces.com/api/v3",
+        "default_model": "doubao-1.5-pro-256k",
+        "label": "豆包 (字节跳动)",
+    },
+    LLMProvider.BAICHUAN: {
+        "base_url": "https://api.baichuan-ai.com/v1",
+        "default_model": "Baichuan4",
+        "label": "百川",
+    },
+    LLMProvider.STEPFUN: {
+        "base_url": "https://api.stepfun.com/v1",
+        "default_model": "step-2-16k",
+        "label": "阶跃星辰",
+    },
+    LLMProvider.SENSETIME: {
+        "base_url": "https://api.sensenova.cn/v1",
+        "default_model": "nova-ptc-lg",
+        "label": "商汤 (日日新)",
+    },
+    LLMProvider.YI: {
+        "base_url": "https://api.lingyiwanwu.com/v1",
+        "default_model": "yi-large",
+        "label": "零一万物 (Yi)",
+    },
     LLMProvider.CUSTOM: {
         "base_url": "",
         "default_model": "",
@@ -74,7 +104,7 @@ class LLMConfig(BaseModel):
 
     provider: str = Field(
         default="openai",
-        description="LLM provider name (openai/minimax/deepseek/zhipu/moonshot/qwen/siliconflow/custom)",
+        description="LLM provider name (openai/minimax/deepseek/zhipu/moonshot/qwen/siliconflow/doubao/baichuan/stepfun/sensetime/yi/custom)",
     )
     api_key: str = Field(default="", description="API key for the chosen provider")
     base_url: str = Field(
