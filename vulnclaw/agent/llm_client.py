@@ -526,6 +526,9 @@ async def call_llm_auto_stream(
             ]
 
             if tool_calls:
+                # [修改] 流式聚合后 tool_calls 仅存在于 delta 片段中, 需回填到聚合消息对象以便后续处理
+                # Patch the dummy message with actual tool calls
+                choice_dummy.message.tool_calls = tool_calls
                 # Execute tool calls
                 for tc in tool_calls:
                     stream_sink.on_tool_call(tc.function.name, tc.function.arguments[:200])

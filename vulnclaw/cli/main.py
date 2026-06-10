@@ -787,6 +787,10 @@ def run(
     target: str = typer.Argument(..., help="Target host/IP/URL"),
     scope: str = typer.Option("full", help="Test scope: full, web, api, mobile"),
     output: Optional[str] = typer.Option(None, help="Output report file path"),
+    # [新增] 2026-06-10 Nyaecho - TUI自然语言驱动: 允许通过 --prompt 传入自定义提示词覆盖自动生成的prompt
+    prompt: Optional[str] = typer.Option(
+        None, "--prompt", help="Custom natural language prompt (overrides auto-generated prompt)"
+    ),
     only_port: Optional[int] = typer.Option(
         None, "--only-port", help="Restrict testing to a single port"
     ),
@@ -821,15 +825,15 @@ def run(
 
     console.print(f"[*] Target: [bold]{target}[/] | Scope: [bold]{scope}[/]")
 
-    prompt = (
+    task_prompt = prompt if prompt else (
         f"Perform an authorized {scope} pentest against {target}. "
         "This target is in scope and explicitly authorized."
     )
-    prompt = _append_cli_constraints_compat(
-        prompt, only_port, only_host, only_path, blocked_host, blocked_path
+    task_prompt = _append_cli_constraints_compat(
+        task_prompt, only_port, only_host, only_path, blocked_host, blocked_path
     )
-    prompt = _append_action_constraints(prompt, allow_actions, block_actions)
-    violation = validate_action_constraints("run", extract_task_constraints(prompt))
+    task_prompt = _append_action_constraints(task_prompt, allow_actions, block_actions)
+    violation = validate_action_constraints("run", extract_task_constraints(task_prompt))
     if violation is not None:
         err_console.print(f"[!] {violation}")
         raise typer.Exit(1)
@@ -838,7 +842,7 @@ def run(
         async def runner(agent, shared_config):
             sink = TerminalStreamSink(console, shared_config.session.show_thinking)
             return await agent.auto_pentest(
-                prompt,
+                task_prompt,
                 target=target,
                 max_rounds=shared_config.session.max_rounds,
                 on_step=lambda r, res: (
@@ -872,6 +876,10 @@ def persistent(
     cycles: int = typer.Option(0, "--cycles", "-c", help="Max cycles (0=use config, default 10)"),
     no_report: bool = typer.Option(
         False, "--no-report", help="Disable auto report after each cycle"
+    ),
+    # [新增] 2026-06-10 Nyaecho - TUI自然语言驱动: 允许通过 --prompt 传入自定义提示词覆盖自动生成的prompt
+    prompt: Optional[str] = typer.Option(
+        None, "--prompt", help="Custom natural language prompt (overrides auto-generated prompt)"
     ),
     only_port: Optional[int] = typer.Option(
         None, "--only-port", help="Restrict testing to a single port"
@@ -924,15 +932,15 @@ def persistent(
         )
     )
 
-    prompt = (
+    task_prompt = prompt if prompt else (
         f"Perform an authorized persistent penetration test against {target}. "
         "This target is in scope and explicitly authorized."
     )
-    prompt = _append_cli_constraints_compat(
-        prompt, only_port, only_host, only_path, blocked_host, blocked_path
+    task_prompt = _append_cli_constraints_compat(
+        task_prompt, only_port, only_host, only_path, blocked_host, blocked_path
     )
-    prompt = _append_action_constraints(prompt, allow_actions, block_actions)
-    violation = validate_action_constraints("persistent", extract_task_constraints(prompt))
+    task_prompt = _append_action_constraints(task_prompt, allow_actions, block_actions)
+    violation = validate_action_constraints("persistent", extract_task_constraints(task_prompt))
     if violation is not None:
         err_console.print(f"[!] {violation}")
         raise typer.Exit(1)
@@ -968,7 +976,7 @@ def persistent(
         async def runner(agent, _config):
             sink = TerminalStreamSink(console, _config.session.show_thinking)
             return await agent.persistent_pentest(
-                user_input=prompt,
+                user_input=task_prompt,
                 target=target,
                 rounds_per_cycle=rounds_per_cycle,
                 max_cycles=max_cycles,
@@ -1027,6 +1035,10 @@ def persistent(
 @app.command()
 def recon(
     target: str = typer.Argument(..., help="Target host/IP/URL"),
+    # [新增] 2026-06-10 Nyaecho - TUI自然语言驱动: 允许通过 --prompt 传入自定义提示词覆盖自动生成的prompt
+    prompt: Optional[str] = typer.Option(
+        None, "--prompt", help="Custom natural language prompt (overrides auto-generated prompt)"
+    ),
     only_port: Optional[int] = typer.Option(
         None, "--only-port", help="Restrict testing to a single port"
     ),
@@ -1054,12 +1066,12 @@ def recon(
     ),
 ) -> None:
     """Run reconnaissance only."""
-    prompt = f"Perform authorized reconnaissance against {target} without exploitation."
-    prompt = _append_cli_constraints_compat(
-        prompt, only_port, only_host, only_path, blocked_host, blocked_path
+    task_prompt = prompt if prompt else f"Perform authorized reconnaissance against {target} without exploitation."
+    task_prompt = _append_cli_constraints_compat(
+        task_prompt, only_port, only_host, only_path, blocked_host, blocked_path
     )
-    prompt = _append_action_constraints(prompt, allow_actions, block_actions)
-    violation = validate_action_constraints("recon", extract_task_constraints(prompt))
+    task_prompt = _append_action_constraints(task_prompt, allow_actions, block_actions)
+    violation = validate_action_constraints("recon", extract_task_constraints(task_prompt))
     if violation is not None:
         err_console.print(f"[!] {violation}")
         raise typer.Exit(1)
@@ -1067,7 +1079,7 @@ def recon(
     async def _run():
         async def runner(agent, _config):
             sink = TerminalStreamSink(console, _config.session.show_thinking)
-            result = await agent.chat(prompt, target=target, stream_sink=sink)
+            result = await agent.chat(task_prompt, target=target, stream_sink=sink)
             if result and result.output:
                 console.print(result.output)
             return result
@@ -1087,6 +1099,10 @@ def recon(
 def scan(
     target: str = typer.Argument(..., help="Target host/IP/URL"),
     ports: Optional[str] = typer.Option(None, help="Port range, e.g. 80,443,8080"),
+    # [新增] 2026-06-10 Nyaecho - TUI自然语言驱动: 允许通过 --prompt 传入自定义提示词覆盖自动生成的prompt
+    prompt: Optional[str] = typer.Option(
+        None, "--prompt", help="Custom natural language prompt (overrides auto-generated prompt)"
+    ),
     only_port: Optional[int] = typer.Option(
         None, "--only-port", help="Restrict testing to a single port"
     ),
@@ -1115,12 +1131,12 @@ def scan(
 ) -> None:
     """Run vulnerability scanning only."""
     port_hint = f", focusing on ports {ports}" if ports else ""
-    prompt = f"Perform authorized vulnerability scanning against {target}{port_hint} without exploitation."
-    prompt = _append_cli_constraints_compat(
-        prompt, only_port, only_host, only_path, blocked_host, blocked_path
+    task_prompt = prompt if prompt else f"Perform authorized vulnerability scanning against {target}{port_hint} without exploitation."
+    task_prompt = _append_cli_constraints_compat(
+        task_prompt, only_port, only_host, only_path, blocked_host, blocked_path
     )
-    prompt = _append_action_constraints(prompt, allow_actions, block_actions)
-    violation = validate_action_constraints("scan", extract_task_constraints(prompt))
+    task_prompt = _append_action_constraints(task_prompt, allow_actions, block_actions)
+    violation = validate_action_constraints("scan", extract_task_constraints(task_prompt))
     if violation is not None:
         err_console.print(f"[!] {violation}")
         raise typer.Exit(1)
@@ -1128,7 +1144,7 @@ def scan(
     async def _run():
         async def runner(agent, _config):
             sink = TerminalStreamSink(console, _config.session.show_thinking)
-            result = await agent.chat(prompt, target=target, stream_sink=sink)
+            result = await agent.chat(task_prompt, target=target, stream_sink=sink)
             if result and result.output:
                 console.print(result.output)
             return result
@@ -1149,6 +1165,10 @@ def exploit(
     target: str = typer.Argument(..., help="Target host/IP/URL"),
     cve: Optional[str] = typer.Option(None, help="Specific CVE to exploit"),
     cmd: str = typer.Option("id", help="Command to execute for verification"),
+    # [新增] 2026-06-10 Nyaecho - TUI自然语言驱动: 允许通过 --prompt 传入自定义提示词覆盖自动生成的prompt
+    prompt: Optional[str] = typer.Option(
+        None, "--prompt", help="Custom natural language prompt (overrides auto-generated prompt)"
+    ),
     only_port: Optional[int] = typer.Option(
         None, "--only-port", help="Restrict testing to a single port"
     ),
@@ -1177,14 +1197,14 @@ def exploit(
 ) -> None:
     """Run exploitation only."""
     cve_hint = f" using {cve}" if cve else ""
-    prompt = (
+    task_prompt = prompt if prompt else (
         f"Attempt authorized exploitation against {target}{cve_hint} and verify with command: {cmd}"
     )
-    prompt = _append_cli_constraints_compat(
-        prompt, only_port, only_host, only_path, blocked_host, blocked_path
+    task_prompt = _append_cli_constraints_compat(
+        task_prompt, only_port, only_host, only_path, blocked_host, blocked_path
     )
-    prompt = _append_action_constraints(prompt, allow_actions, block_actions)
-    violation = validate_action_constraints("exploit", extract_task_constraints(prompt))
+    task_prompt = _append_action_constraints(task_prompt, allow_actions, block_actions)
+    violation = validate_action_constraints("exploit", extract_task_constraints(task_prompt))
     if violation is not None:
         err_console.print(f"[!] {violation}")
         raise typer.Exit(1)
@@ -1192,7 +1212,7 @@ def exploit(
     async def _run():
         async def runner(agent, _config):
             sink = TerminalStreamSink(console, _config.session.show_thinking)
-            result = await agent.chat(prompt, target=target, stream_sink=sink)
+            result = await agent.chat(task_prompt, target=target, stream_sink=sink)
             if result and result.output:
                 console.print(result.output)
             return result
