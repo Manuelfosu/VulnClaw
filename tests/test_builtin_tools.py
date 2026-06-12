@@ -109,6 +109,22 @@ class TestBuiltinPythonExecute:
 
 
 class TestBuiltinMcpExecution:
+    async def test_execute_loads_secknowledge_reference(self):
+        import vulnclaw.agent.builtin_tools as builtin_tools
+
+        agent = DummyAgent()
+        result = await builtin_tools.execute_mcp_tool(
+            agent,
+            "load_skill_reference",
+            {
+                "skill_name": "secknowledge-skill",
+                "reference_name": "web-sqli.md",
+            },
+        )
+
+        assert "SQL" in result or "sql" in result
+        assert "注入" in result or "injection" in result.lower()
+
     async def test_execute_mcp_tool_includes_structured_content_summary(self):
         import vulnclaw.agent.builtin_tools as builtin_tools
 

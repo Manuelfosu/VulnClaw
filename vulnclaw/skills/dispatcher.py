@@ -39,6 +39,13 @@ SKILL_INTENT_MAP: dict[str, list[str]] = {
     "sqlmap|nmap|nuclei|ffuf|burp|impacket|crackmapexec": ["pentest-tools"],
     "速查|payload|绕过提醒|快速验证|checklist|检查清单": ["rapid-checklist"],
     "payload大全|绕过|bypass|快速查|速查卡|快速回忆": ["rapid-checklist"],
+    # SecKnowledge: practical CTF/SRC/Web+AI security testing knowledge base
+    "src|漏洞挖掘|众测|补天|edusrc|cnvd": ["secknowledge-skill"],
+    "wooyun|乌云|先知|l1-l4|gaarm|owasp wstg|owasp llm|owasp asi": ["secknowledge-skill"],
+    "实战安全测试|安全测试知识库|web+ai|web ai安全|ai应用安全测试": [
+        "secknowledge-skill"
+    ],
+    "ctf src|ctf漏洞挖掘|ctf综合渗透|ctf ai|ctf mcp|ctf agent": ["secknowledge-skill"],
     # Crypto toolkit
     "编码|解码|base64|base32|hex|url编码|加密|解密|哈希|hash": ["crypto-toolkit"],
     "md5|sha|aes|des|rsa|jwt|rot13|caesar|morse|栅栏": ["crypto-toolkit"],

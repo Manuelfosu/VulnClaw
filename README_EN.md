@@ -52,7 +52,7 @@ Suitable for authorized pentests, CTF competitions, security training, and red t
 - **8 LLM Providers** — OpenAI / MiniMax / DeepSeek / Zhipu / Moonshot / Qwen / SiliconFlow, one-command switch
 - **MCP Toolchain** — Ships with 11 MCP service configs and 23 tool definitions; `fetch` / `memory` currently run in stable `local` mode, while most other MCP integrations remain preview or placeholder until full session lifecycle management is completed
 - **AI Agent Core** — OpenAI-compatible protocol + Tool Calling + autonomous pentest loop
-- **20 Pentest Skills** — 7 core + 13 specialized skills (incl. CTF Web/Crypto/Misc + osint-recon), 138 reference documents
+- **21 Pentest Skills** — 7 core + 14 specialized skills (incl. CTF Web/Crypto/Misc, osint-recon, secknowledge-skill), 180 reference documents
 - **Encode/Decode & Crypto Tools** — 29 operations (Base64/Hex/URL/AES/JWT/Morse etc.), LLM calls them directly, no guessing
 - **Python Code Execution** — Built-in `python_execute` tool for payload crafting and response parsing; currently still a high-risk experimental capability, not a strong isolation sandbox
 - **Persistent Pentesting** — Cyclic runs (100 rounds/cycle × 10 cycles = 1000 rounds), auto-reports every cycle, runs until you stop it
@@ -473,7 +473,7 @@ vulnclaw config provider minimax   # one-command switch
 | **Skill / KB Context** | `agent/skill_context.py` + `kb_context.py`       | Skill selection and knowledge-base prompt injection |
 | **Target State**    | `target_state/store.py`                              | Per-target persistence, resume, snapshots, rollback, target-level reports |
 | **MCP Orchestration**| `mcp/registry.py` + `lifecycle.py` + `router.py`    | Service registry + lifecycle + NL→tool routing     |
-| **Skill Dispatcher** | `skills/loader.py` + `dispatcher.py`               | Directory-format Skills + 16-intent dynamic routing |
+| **Skill Dispatcher** | `skills/loader.py` + `dispatcher.py`               | Directory-format Skills + CTF/SRC/AI/Web intent routing |
 | **Crypto Tools**    | `skills/crypto_tools.py`                             | 29 encode/decode/crypto ops, registered as built-in tools |
 | **Config**          | `config/schema.py` + `settings.py`                   | Pydantic models + YAML persistence + 8 provider presets |
 | **Report Generator** | `report/generator.py` + `poc_builder.py`          | Markdown reports + Python PoC templates             |
@@ -518,25 +518,28 @@ vulnclaw config provider minimax   # one-command switch
 | reporting          | Report generation                  |
 | waf-bypass        | WAF bypass techniques              |
 
-### Specialized Skills (13)
+### Specialized Skills (14)
 
 | Skill                      | Ref Docs | Description                                          |
 | -------------------------- | -------- | ---------------------------------------------------- |
 | web-pentest                | 4        | Web application pentesting                            |
 | android-pentest            | 9        | Android application pentesting                        |
 | client-reverse            | 20       | Client-side reverse engineering                      |
-| web-security-advanced      | 33       | Advanced web security (injection, bypass, chains)     |
+| web-security-advanced      | 34       | Advanced web security (injection, bypass, chains)     |
 | ai-mcp-security            | 7        | AI/MCP security testing                              |
 | intranet-pentest-advanced  | 15       | Advanced internal network pentesting                  |
 | pentest-tools              | 18       | Pentest tool quick reference                         |
 | rapid-checklist            | 3        | Rapid validation checklists                          |
 | crypto-toolkit             | 3        | Encode/decode/crypto (29 ops, registered as built-in)|
-| ctf-web                   | 8        | CTF Web attacks (PHP bypass/RCE/SSTI/deserialization)|
+| ctf-web                   | 9        | CTF Web attacks (PHP bypass/RCE/SSTI/deserialization)|
 | ctf-crypto                | 6        | CTF cryptography (RSA/AES/ECC/PRNG/lattice attacks)  |
 | ctf-misc                  | 6        | CTF Misc (PyJail/BashJail/encoding chains/VM RE)    |
 | osint-recon               | 7        | OSINT four-dimension model (server/web/domain/person)|
+| secknowledge-skill        | 39       | Web+AI security testing knowledge base for CTF/SRC/bug bounty workflows |
 
 Skills are auto-dispatched based on user input — no manual selection needed. Specialized skills include detailed methodology documents in `references/`, loadable via the `load_skill_reference` tool.
+
+`secknowledge-skill` integrates [`Pa55w0rd/secknowledge-skill`](https://github.com/Pa55w0rd/secknowledge-skill). All 38 upstream `references/` documents are included, plus VulnClaw's `vulnclaw-ctf-src-routing.md` guide for CTF/SRC workflows. It is routed by strong signals such as `SRC`, vulnerability research, bug bounty, GAARM, OWASP LLM/ASI/WSTG, and Web+AI testing, then loads SQLi, XSS, RCE, SSRF, AI/MCP, Agent, risk-matrix, and methodology references on demand.
 
 ### Built-in Encode/Decode & Crypto Tool (`crypto_decode`)
 

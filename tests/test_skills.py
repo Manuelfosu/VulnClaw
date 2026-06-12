@@ -32,7 +32,7 @@ class TestSkillLoader:
         assert isinstance(spec, list)
         assert (
             len(spec) >= 9
-        )  # Grew from 9 to 13 (added ctf-web, ctf-crypto, ctf-misc, osint-recon)
+        )  # Grew from 9 with CTF/OSINT/SecKnowledge specialized skills.
         expected = [
             "web-pentest",
             "android-pentest",
@@ -43,6 +43,7 @@ class TestSkillLoader:
             "pentest-tools",
             "rapid-checklist",
             "crypto-toolkit",
+            "secknowledge-skill",
         ]
         for skill in expected:
             assert skill in spec, f"Missing specialized skill: {skill}"
@@ -125,6 +126,16 @@ class TestSkillLoader:
             "client" in content.lower() or "burp" in content.lower() or "reverse" in content.lower()
         )
 
+    def test_load_secknowledge_reference(self):
+        """SecKnowledge references should be loadable through VulnClaw."""
+        from vulnclaw.skills.loader import load_skill_reference
+
+        content = load_skill_reference("secknowledge-skill", "vulnclaw-ctf-src-routing.md")
+        assert content is not None
+        assert "SRC" in content
+        assert "GAARM" in content
+        assert "web-sqli.md" in content
+
     def test_load_skill_reference_nonexistent(self):
         from vulnclaw.skills.loader import load_skill_reference
 
@@ -178,6 +189,7 @@ class TestSkillLoader:
             ("web-pentest", "03-web-security-integrated.md"),
             ("android-pentest", "android-authorized-app-pentest-sop.md"),
             ("crypto-toolkit", "encoding-cheatsheet.md"),
+            ("secknowledge-skill", "vulnclaw-ctf-src-routing.md"),
         ]
         for skill_name, ref_name in test_cases:
             skill = load_skill_by_name(skill_name)
@@ -271,6 +283,16 @@ class TestSkillDispatcher:
         d = self._make_dispatcher()
         skill = d.dispatch("快速XSS payload速查")
         assert skill["name"] == "rapid-checklist"
+
+    def test_dispatch_secknowledge_src(self):
+        d = self._make_dispatcher()
+        skill = d.dispatch("SRC 漏洞挖掘 目标 https://example.com SQL注入 XSS 测试")
+        assert skill["name"] == "secknowledge-skill"
+
+    def test_dispatch_secknowledge_ai_gaarm(self):
+        d = self._make_dispatcher()
+        skill = d.dispatch("GAARM AI应用安全测试 Prompt注入 MCP Agent 风险映射")
+        assert skill["name"] == "secknowledge-skill"
 
     def test_dispatch_default_to_pentest_flow(self):
         """Unrecognized input should default to pentest-flow."""
