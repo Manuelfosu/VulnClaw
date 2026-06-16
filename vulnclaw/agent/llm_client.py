@@ -309,6 +309,39 @@ async def call_llm_auto(
 
 # === Stream LLM Call Helpers ===
 
+
+class _AsyncIterWrapper:
+    """Wrap sync iterable as async iterable for unified async for usage.
+
+    OpenAI sync client → sync Stream（需包装后 async for）
+    测试 mock / async client → async Stream（直接用 async for）
+    """
+
+    def __init__(self, iterable):
+        self._iter = iter(iterable)
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        try:
+            return next(self._iter)
+        except StopIteration:
+            raise StopAsyncIteration
+
+
+def _ensure_async_iter(response):
+    """返回 async 可迭代对象，兼容 sync 和 async Stream。
+
+    检查顺序：async 可迭代 → sync 可迭代 → 不可迭代返回 None（触发降级）。
+    """
+    if hasattr(response, "__aiter__"):
+        return response
+    if hasattr(response, "__iter__"):
+        return _AsyncIterWrapper(response)
+    return None  # 不是可迭代对象，由调用方走降级路径
+
+
 async def call_llm_stream(
     agent: Any,
     system_prompt: str,
@@ -343,8 +376,11 @@ async def call_llm_stream(
         reasoning_buffer = ""
         tool_calls_chunks: list[dict] = []
 
-        # sync client → sync 迭代（OpenAI sync Stream 用 for）
-        for chunk in response:
+        # 自动适配 sync/async Stream（sync Stream 用 _AsyncIterWrapper 包装）
+        _stream = _ensure_async_iter(response)
+        if _stream is None:
+            raise ValueError("LLM response is not a valid stream object")
+        async for chunk in _stream:
             if chunk.choices and len(chunk.choices) > 0:
                 delta = chunk.choices[0].delta
 
@@ -433,6 +469,7 @@ async def call_llm_stream(
             "not supported", "not implemented", "streaming",
             "requires an object with __aiter__",
             "stream is not iterable", "doesn't support",
+            "not a valid stream",
         ]
         if any(marker in error_text for marker in streaming_markers):
             # Provider doesn't support streaming or other streaming error, fall back
@@ -491,7 +528,11 @@ async def call_llm_auto_stream(
         reasoning_buffer = ""
         tool_calls_chunks: list[dict] = []
 
-        for chunk in response:
+        # 自动适配 sync/async Stream
+        _stream = _ensure_async_iter(response)
+        if _stream is None:
+            raise ValueError("LLM response is not a valid stream object")
+        async for chunk in _stream:
             if chunk.choices and len(chunk.choices) > 0:
                 delta = chunk.choices[0].delta
 
@@ -618,7 +659,10 @@ async def call_llm_auto_stream(
                     response2 = client.chat.completions.create(**kwargs, stream=True)
                     full_text = ""
 
-                    for chunk in response2:
+                    _stream2 = _ensure_async_iter(response2)
+                    if _stream2 is None:
+                        raise ValueError("LLM response is not a valid stream object")
+                    async for chunk in _stream2:
                         if chunk.choices and len(chunk.choices) > 0:
                             delta = chunk.choices[0].delta
                             reasoning = getattr(delta, "reasoning_content", None) or ""
