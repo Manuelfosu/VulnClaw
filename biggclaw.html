@@ -1,0 +1,454 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BIGGCLAW - Admin Console</title>
+<style>
+:root{--blue:#2783DE;--red:#E56458;--amber:#E5A73C;--green:#3FA372;--purple:#8A63D2;
+--bg:#F5F6F8;--card:#fff;--line:#E6E8EC;--txt:#1E2430;--muted:#6B7280;--sb:248px;--radius:12px}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{margin:0;height:100%}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--txt);font-size:14px;line-height:1.5}
+h1,h2,h3{margin:0;font-weight:700}
+a{cursor:pointer;text-decoration:none;color:inherit}
+code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.muted{color:var(--muted)}.small{font-size:12px}.spacer{flex:1}
+.btn{border:1px solid var(--line);background:#fff;color:var(--txt);border-radius:9px;padding:9px 14px;font-size:13px;font-weight:600;cursor:pointer;transition:.15s;display:inline-flex;align-items:center;gap:6px}
+.btn:hover{background:#f3f4f6}
+.btn.primary{background:var(--blue);border-color:var(--blue);color:#fff}
+.btn.primary:hover{filter:brightness(.95)}
+.btn.danger{color:var(--red);border-color:rgba(229,100,88,.4)}
+.btn.ghost{background:transparent}
+.btn.block{width:100%;justify-content:center;padding:11px}
+.btn.sm{padding:6px 10px;font-size:12px}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.iconbtn{border:none;background:transparent;font-size:20px;cursor:pointer;display:none;color:var(--txt)}
+input,select,textarea{width:100%;border:1px solid var(--line);border-radius:9px;padding:10px 12px;font-size:14px;background:#fff;color:var(--txt);outline:none;font-family:inherit}
+textarea{resize:vertical}
+input:focus,select:focus,textarea:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(39,131,222,.15)}
+label{display:block;font-size:12px;font-weight:600;margin:0 0 5px}
+.link{background:none;border:none;color:var(--blue);font-weight:600;cursor:pointer;font-size:12px}
+.chip{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;padding:5px 10px;border-radius:999px;border:1px solid var(--line);background:#fff;color:var(--muted)}
+.chip.ok{color:var(--green);border-color:rgba(63,163,114,.35);background:rgba(63,163,114,.08)}
+.chip.warn{color:var(--amber);border-color:rgba(229,167,60,.35);background:rgba(229,167,60,.08)}
+.chip.err{color:var(--red);border-color:rgba(229,100,88,.35);background:rgba(229,100,88,.08)}
+.err{color:var(--red);font-size:13px;margin:4px 0;font-weight:600}
+.badge{display:inline-block;padding:3px 9px;border-radius:999px;font-size:11px;font-weight:700;text-transform:capitalize}
+.sev-critical{background:rgba(229,100,88,.14);color:#c0392b}
+.sev-high{background:rgba(229,103,60,.16);color:#cf5f26}
+.sev-medium{background:rgba(229,167,60,.18);color:#a9781f}
+.sev-low{background:rgba(39,131,222,.14);color:#2172c0}
+.sev-info{background:#eef0f3;color:#6b7280}
+.bg-critical{background:#c0392b}.bg-high{background:#cf5f26}.bg-medium{background:#e5a73c}.bg-low{background:#2783de}.bg-info{background:#c3c8d0}
+select.inline{width:auto;min-width:120px;padding:5px 8px;font-size:12px;font-weight:600;border-radius:7px}
+select.inline.sev-critical{border-color:#c0392b}select.inline.sev-high{border-color:#cf5f26}select.inline.sev-medium{border-color:#b9822a}select.inline.sev-low{border-color:#2172c0}
+.editable{cursor:text;border-bottom:1px dashed transparent;border-radius:5px;padding:2px 5px;display:inline-block;min-width:40px}
+.editable:hover{border-bottom-color:var(--line);background:#f7f8fa}
+.editable:focus{outline:none;box-shadow:0 0 0 2px rgba(39,131,222,.25);background:#fff}
+.overlay{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;padding:20px;background:linear-gradient(180deg,#eef1f6,#f5f6f8)}
+.auth{width:100%;max-width:400px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:26px;box-shadow:0 10px 40px rgba(20,30,50,.06)}
+.brand{display:flex;align-items:center;gap:11px}
+.logo{width:38px;height:38px;border-radius:10px;background:#12151c;display:flex;align-items:center;justify-content:center;font-size:20px}
+.bname{font-weight:800;letter-spacing:.3px}.bsub{font-size:11px;color:var(--muted)}
+.auth h1{font-size:20px;margin:18px 0 4px}.auth label{margin-top:14px}
+.pwwrap{position:relative}.pwwrap .link{position:absolute;right:10px;top:10px}
+.chk{display:flex;align-items:center;gap:8px;font-weight:500;margin-top:14px}.chk input{width:auto}
+.auth .btn.primary{margin-top:18px}
+.note{margin-top:16px;border:1px solid var(--line);border-radius:9px;padding:10px 12px;font-size:11px;color:var(--muted)}
+#app{display:flex;min-height:100vh}
+.sidebar{width:var(--sb);background:#fff;border-right:1px solid var(--line);display:flex;flex-direction:column;position:fixed;top:0;bottom:0;left:0;z-index:20}
+.sidebar .brand{padding:18px}
+.sidebar nav{display:flex;flex-direction:column;padding:6px 10px;gap:2px}
+.sidebar nav a{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:9px;font-weight:600;color:#374151}
+.sidebar nav a:hover{background:#f3f4f6}
+.sidebar nav a.active{background:rgba(39,131,222,.1);color:var(--blue)}
+.side-foot{margin-top:auto;padding:14px;border-top:1px solid var(--line);display:flex;align-items:center;gap:10px}
+.avatar{width:34px;height:34px;border-radius:50%;background:var(--purple);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700}
+.who{flex:1;min-width:0}.who div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+main{flex:1;margin-left:var(--sb);display:flex;flex-direction:column}
+.topbar{position:sticky;top:0;background:rgba(245,246,248,.85);backdrop-filter:blur(8px);border-bottom:1px solid var(--line);display:flex;align-items:center;gap:12px;padding:14px 22px;z-index:10}
+.page{padding:22px;max-width:1060px}
+.cards{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:18px}
+.stat{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:16px}
+.stat .k{font-size:12px;color:var(--muted);font-weight:600}
+.stat .v{font-size:22px;font-weight:800;margin-top:6px}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:18px;margin-bottom:18px}
+.panel-h{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:10px}
+.panel-h h3{font-size:15px}
+.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.field.full{grid-column:1/-1}
+.chkfield{display:flex;align-items:flex-end}
+.toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
+.toolbar .search{flex:1;min-width:200px}
+.toolbar select{width:auto;min-width:150px}
+.sevbar{display:flex;height:9px;border-radius:6px;overflow:hidden;background:#eef0f3;margin:4px 0 10px}
+.sevbar span{display:block;height:100%}
+.legend{display:flex;flex-wrap:wrap;gap:12px;font-size:12px;color:var(--muted)}
+.legend i{display:inline-block;width:9px;height:9px;border-radius:3px;margin-right:5px;vertical-align:middle}
+.preview{margin:16px 0 10px;padding:11px 13px;background:#0f1420;border-radius:9px;color:#cfe3ff;font-size:13px;overflow:auto}
+.preview code{color:#8fd0ff}
+.row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.term{background:#0f1420;color:#d6e2f0;border-radius:10px;padding:14px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12.5px;white-space:pre-wrap;word-break:break-word;overflow:auto;max-height:260px;margin:0}
+.term.big{max-height:420px}
+.tbl{width:100%;border-collapse:collapse}
+.tbl th,.tbl td{text-align:left;padding:10px 8px;border-bottom:1px solid var(--line);font-size:13px;vertical-align:middle}
+.tbl th{font-size:11px;text-transform:uppercase;letter-spacing:.4px;color:var(--muted)}
+.tbl tr:hover td{background:#fafbfc}
+.ta-r{text-align:right;white-space:nowrap}
+.ta-r .btn{margin-left:6px}
+.modal{position:fixed;inset:0;background:rgba(15,20,32,.45);display:flex;align-items:center;justify-content:center;padding:20px;z-index:50}
+.modal-card{background:#fff;border-radius:14px;padding:22px;width:100%;max-width:540px;max-height:90vh;overflow:auto}
+.modal-card label{margin-top:12px}
+#toasts{position:fixed;right:18px;bottom:18px;display:flex;flex-direction:column;gap:8px;z-index:80}
+.toast{background:#12151c;color:#fff;padding:10px 14px;border-radius:9px;font-size:13px;box-shadow:0 8px 24px rgba(0,0,0,.2);opacity:0;transform:translateY(8px);transition:.25s;max-width:320px}
+.toast.show{opacity:1;transform:none}
+.toast.ok{background:#1f7a4d}.toast.err{background:#b0392f}
+@media(max-width:960px){.cards{grid-template-columns:repeat(2,1fr)}.iconbtn{display:block}
+.sidebar{transform:translateX(-100%);transition:.2s;box-shadow:0 10px 40px rgba(0,0,0,.15)}
+#app.nav-open .sidebar{transform:none}main{margin-left:0}}
+@media(max-width:520px){.form-grid{grid-template-columns:1fr}.cards{grid-template-columns:1fr}.page{padding:14px}.toolbar .search{min-width:100%}}
+</style>
+</head>
+<body>
+<div id="login" class="overlay">
+  <form id="loginForm" class="card auth" autocomplete="on">
+    <div class="brand"><div class="logo">&#129438;</div><div><div class="bname">BIGGCLAW</div><div class="bsub">built by BigOne</div></div></div>
+    <h1>Admin sign in</h1>
+    <p class="muted">Enter your administrator credentials to access the console.</p>
+    <label>Email</label>
+    <input id="email" type="email" autocomplete="username" placeholder="you@example.com">
+    <label>Password</label>
+    <div class="pwwrap"><input id="password" type="password" autocomplete="current-password" placeholder="&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;"><button type="button" id="togglePw" class="link">Show</button></div>
+    <label class="chk"><input id="remember" type="checkbox" checked> Keep me signed in on this device</label>
+    <div id="loginErr" class="err" hidden></div>
+    <button type="submit" class="btn primary block">Sign in</button>
+    <div class="note">Secured by server-side authentication. Your credentials are verified on the server and are never stored in this page.</div>
+  </form>
+</div>
+
+<div id="app" hidden>
+  <aside class="sidebar">
+    <div class="brand"><div class="logo">&#129438;</div><div><div class="bname">BIGGCLAW</div><div class="bsub">built by BigOne</div></div></div>
+    <nav>
+      <a data-sec="overview" class="active">Overview</a>
+      <a data-sec="target">Target</a>
+      <a data-sec="findings">Findings</a>
+      <a data-sec="assess">Assessment</a>
+      <a data-sec="reports">Reports</a>
+      <a data-sec="settings">Settings</a>
+    </nav>
+    <div class="side-foot">
+      <div class="avatar" id="avatar">A</div>
+      <div class="who"><div id="whoName">Admin</div><div id="whoEmail" class="muted small"></div></div>
+      <button id="logout" class="btn ghost sm">Sign out</button>
+    </div>
+  </aside>
+  <main>
+    <header class="topbar">
+      <button id="menuBtn" class="iconbtn">&#9776;</button>
+      <h2 id="pageTitle">Overview</h2>
+      <div class="spacer"></div>
+      <span class="chip ok">&#9679; Secure session</span>
+      <span id="vcChip" class="chip">&#9679; &#8230;</span>
+    </header>
+
+    <section data-sec="overview" class="page">
+      <div class="cards">
+        <div class="stat"><div class="k">Open findings</div><div class="v" id="ovOpen">0</div></div>
+        <div class="stat"><div class="k">Critical / High</div><div class="v" id="ovCH">0</div></div>
+        <div class="stat"><div class="k">Total findings</div><div class="v" id="ovTotal">0</div></div>
+        <div class="stat"><div class="k">Endpoints</div><div class="v" id="ovEndpoints">0</div></div>
+      </div>
+      <div class="panel">
+        <div class="panel-h"><h3>Severity breakdown</h3><span id="ovTargetName" class="muted">&#8212;</span></div>
+        <div class="sevbar" id="sevBar"></div>
+        <div class="legend" id="sevLegend"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-h"><h3>Environment</h3><div class="row"><span id="vcVersion" class="chip"></span><button id="btnDoctor" class="btn ghost sm">Run doctor</button></div></div>
+        <pre id="doctorOut" class="term">Loading&#8230;</pre>
+      </div>
+    </section>
+
+    <section data-sec="target" class="page" hidden>
+      <div class="panel">
+        <div class="panel-h"><h3>Target information</h3><span id="tMsg" class="muted small"></span></div>
+        <p class="muted">Edit the engagement details stored on the server. Changes are saved server-side.</p>
+        <div class="form-grid">
+          <div class="field"><label>Name</label><input id="tName"></div>
+          <div class="field"><label>Primary URL</label><input id="tUrl"></div>
+          <div class="field"><label>IP address</label><input id="tIp"></div>
+          <div class="field"></div>
+          <div class="field full"><label>Scope</label><textarea id="tScope" rows="2"></textarea></div>
+          <div class="field full"><label>Notes</label><textarea id="tNotes" rows="3"></textarea></div>
+        </div>
+        <div class="row" style="margin-top:14px"><button id="btnSaveTarget" class="btn primary">Save target</button><button id="btnResetTarget" class="btn ghost">Revert</button></div>
+      </div>
+    </section>
+
+    <section data-sec="findings" class="page" hidden>
+      <div class="panel">
+        <div class="panel-h"><h3>Findings <span id="findCount" class="muted small"></span></h3><button id="btnAddFinding" class="btn primary sm">+ Add finding</button></div>
+        <div class="toolbar">
+          <input id="findSearch" class="search" placeholder="Search by title, endpoint, ID, or description&#8230;">
+          <select id="findSev"><option value="">All severities</option></select>
+          <select id="findStat"><option value="">All statuses</option></select>
+          <button id="findReset" class="btn ghost sm">Reset</button>
+        </div>
+        <p class="muted small" style="margin:-4px 0 10px">Tip: click a title or endpoint to edit it inline; change severity or status right in the row.</p>
+        <table class="tbl"><thead><tr><th style="width:64px">ID</th><th>Title</th><th style="width:150px">Severity</th><th style="width:160px">Status</th><th>Endpoint</th><th style="width:150px"></th></tr></thead>
+        <tbody id="findingRows"><tr><td colspan="6" class="muted">Loading&#8230;</td></tr></tbody></table>
+      </div>
+    </section>
+
+    <section data-sec="assess" class="page" hidden>
+      <div class="panel">
+        <div class="panel-h"><h3>Run an assessment</h3><span id="runStatus" class="chip">idle</span></div>
+        <div class="form-grid">
+          <div class="field full"><label>Authorized target</label><input id="target" placeholder="https://portal.example.com  or  203.0.113.42"></div>
+          <div class="field"><label>Mode</label><select id="mode">
+            <option value="run">Full pipeline (run)</option>
+            <option value="recon">Recon only</option>
+            <option value="scan">Vulnerability scan</option>
+            <option value="exploit">Exploit</option>
+            <option value="persistent">Persistent</option>
+          </select></div>
+          <div class="field only-scan"><label>Ports (optional)</label><input id="ports" placeholder="80,443,8080"></div>
+          <div class="field only-exploit"><label>CVE (optional)</label><input id="cve" placeholder="CVE-2024-1234"></div>
+          <div class="field only-exploit"><label>Command (optional)</label><input id="cmd" placeholder="id"></div>
+          <div class="field only-persistent"><label>Rounds</label><input id="rounds" type="number" min="1" max="1000" placeholder="100"></div>
+          <div class="field only-persistent"><label>Cycles</label><input id="cycles" type="number" min="1" max="100" placeholder="10"></div>
+          <div class="field only-persistent chkfield"><label class="chk"><input id="noReport" type="checkbox"> Skip auto report</label></div>
+        </div>
+        <div class="preview"><span class="muted">Command &nbsp;</span><code id="preview">vulnclaw run</code></div>
+        <div class="row">
+          <button id="btnRun" class="btn primary">&#9654; Run assessment</button>
+          <button id="btnStop" class="btn ghost" disabled>&#9632; Stop</button>
+          <span class="muted small">Only test systems you are authorized to assess.</span>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-h"><h3>Live output</h3><button id="btnClear" class="btn ghost sm">Clear</button></div>
+        <pre id="term" class="term big">Idle. Configure a target and run an assessment.</pre>
+      </div>
+      <details class="panel"><summary style="cursor:pointer;font-weight:700;font-size:15px">Command reference &amp; tips</summary>
+        <table class="tbl" style="margin-top:12px"><thead><tr><th>Mode</th><th>What it does</th><th>Example</th></tr></thead><tbody>
+        <tr><td><code>run</code></td><td>Full pipeline: recon &#8594; scan &#8594; exploit &#8594; report</td><td><code>vulnclaw run TARGET</code></td></tr>
+        <tr><td><code>recon</code></td><td>Reconnaissance only</td><td><code>vulnclaw recon TARGET</code></td></tr>
+        <tr><td><code>scan</code></td><td>Vulnerability scan (optional ports)</td><td><code>vulnclaw scan TARGET --ports 80,443</code></td></tr>
+        <tr><td><code>exploit</code></td><td>Attempt / verify a CVE and run a command</td><td><code>vulnclaw exploit TARGET --cve CVE-2024-1234 --cmd id</code></td></tr>
+        <tr><td><code>persistent</code></td><td>Long-running autonomous loop</td><td><code>vulnclaw persistent TARGET -r 100 -c 10</code></td></tr>
+        </tbody></table>
+        <p class="muted small">Engine management (initialize, provider, current config) lives in the Settings tab.</p>
+      </details>
+    </section>
+
+    <section data-sec="reports" class="page" hidden>
+      <div class="panel">
+        <div class="panel-h"><h3>Reports &amp; PoCs</h3><button id="btnReloadReports" class="btn ghost sm">Refresh</button></div>
+        <div class="toolbar"><input id="repSearch" class="search" placeholder="Search reports&#8230;"></div>
+        <table class="tbl"><thead><tr><th>Name</th><th>Type</th><th>Size</th><th>Modified</th><th></th></tr></thead>
+        <tbody id="reportRows"><tr><td colspan="5" class="muted">No reports yet.</td></tr></tbody></table>
+      </div>
+      <div class="panel" id="viewerPanel" hidden>
+        <div class="panel-h"><h3 id="viewerName">Report</h3><button id="btnCloseViewer" class="btn ghost sm">Close</button></div>
+        <pre id="viewer" class="term big"></pre>
+      </div>
+    </section>
+
+    <section data-sec="settings" class="page" hidden>
+      <div class="panel">
+        <div class="panel-h"><h3>LLM provider</h3></div>
+        <p class="muted">These settings configure the VulnClaw engine on the server. The API key is write-only and is never displayed.</p>
+        <div class="form-grid">
+          <div class="field"><label>Provider</label><select id="cfgProvider">
+            <option value="">(keep current)</option>
+            <option>openai</option><option>deepseek</option><option>minimax</option><option>zhipu</option>
+            <option>moonshot</option><option>qwen</option><option>siliconflow</option><option>baichuan</option><option>stepfun</option>
+          </select></div>
+          <div class="field"><label>Model</label><input id="cfgModel" placeholder="deepseek-v4-pro"></div>
+          <div class="field"><label>Base URL (optional)</label><input id="cfgBase" placeholder="https://api.deepseek.com/v1"></div>
+          <div class="field"><label>API key</label><input id="cfgKey" type="password" placeholder="sk-&#8230;"></div>
+        </div>
+        <div class="row" style="margin-top:14px"><button id="btnSaveCfg" class="btn primary">Save configuration</button><button id="btnProviders" class="btn ghost">Refresh providers</button><button id="btnInit" class="btn ghost">Initialize engine</button><button id="btnReloadCfg" class="btn ghost">Reload current config</button><span id="cfgMsg" class="muted"></span></div>
+        <pre id="cfgOut" class="term" hidden></pre>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div id="modal" class="modal" hidden>
+  <div class="modal-card">
+    <div class="panel-h"><h3 id="modalTitle">Edit finding</h3><button id="modalClose" class="btn ghost sm">Close</button></div>
+    <input type="hidden" id="fId">
+    <label>Title</label><input id="fTitle" placeholder="e.g. SQL injection in login">
+    <div class="form-grid">
+      <div class="field"><label>Severity</label><select id="fSeverity"></select></div>
+      <div class="field"><label>Status</label><select id="fStatus"></select></div>
+    </div>
+    <label>Endpoint</label><input id="fEndpoint" placeholder="/api/...">
+    <label>Description</label><textarea id="fDesc" rows="4"></textarea>
+    <div id="modalErr" class="err" hidden></div>
+    <div class="row" style="margin-top:14px"><button id="fSave" class="btn primary">Save finding</button><button id="modalCancel" class="btn ghost">Cancel</button></div>
+  </div>
+</div>
+<div id="toasts"></div>
+<script>
+function el(id){return document.getElementById(id);}
+function val(id){var e=el(id);return e?e.value:'';}
+function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+function fmtSize(n){if(n<1024)return n+' B';if(n<1048576)return (n/1024).toFixed(1)+' KB';return (n/1048576).toFixed(1)+' MB';}
+function fmtTime(t){try{return new Date(t*1000).toLocaleString();}catch(e){return '';}}
+function toast(msg,type){var t=document.createElement('div');t.className='toast '+(type||'');t.textContent=msg;el('toasts').appendChild(t);requestAnimationFrame(function(){t.classList.add('show');});setTimeout(function(){t.classList.remove('show');setTimeout(function(){t.remove();},300);},2600);}
+var TK='biggclaw.token';
+function getToken(){return localStorage.getItem(TK)||sessionStorage.getItem(TK)||'';}
+function clearToken(){localStorage.removeItem(TK);sessionStorage.removeItem(TK);}
+function setToken(t,remember){clearToken();(remember?localStorage:sessionStorage).setItem(TK,t);}
+function authHeaders(extra){var h=extra||{};var t=getToken();if(t)h['Authorization']='Bearer '+t;return h;}
+function api(path,opts){opts=opts||{};opts.headers=authHeaders(opts.headers||{});
+  if(opts.body&&typeof opts.body!=='string'){opts.headers['Content-Type']='application/json';opts.body=JSON.stringify(opts.body);}
+  return fetch(path,opts).then(function(r){
+    if(r.status===401){showLogin();throw new Error('Session expired. Please sign in again.');}
+    return r.json().then(function(j){if(!r.ok)throw new Error(j.error||('HTTP '+r.status));return j;});});}
+function showApp(email){el('login').style.display='none';el('app').hidden=false;
+  if(email){el('whoEmail').textContent=email;el('avatar').textContent=(email[0]||'A').toUpperCase();}}
+function showLogin(){clearToken();el('app').hidden=true;el('login').style.display='flex';}
+function setVcChip(installed){var c=el('vcChip');c.textContent=(installed?'\u25CF VulnClaw live':'\u25CF Demo mode');c.className='chip '+(installed?'ok':'warn');}
+var SEV=['critical','high','medium','low','info'],STT=['open','confirmed','in progress','fixed','false positive'],findingsCache=[],targetCache={};
+function loadState(){return api('/api/state').then(function(s){SEV=s.severities||SEV;STT=s.statuses||STT;findingsCache=s.findings||[];targetCache=s.target||{};fillTarget(targetCache);buildFilters();applyFilters();updateStats();fillModalSelects();}).catch(function(){});}
+function fillTarget(t){el('tName').value=t.name||'';el('tUrl').value=t.url||'';el('tIp').value=t.ip||'';el('tScope').value=t.scope||'';el('tNotes').value=t.notes||'';el('tMsg').textContent='';el('ovTargetName').textContent=(t.name||'\u2014')+(t.url?(' \u00b7 '+t.url):'');}
+function sevRank(s){var i=SEV.indexOf(s);return i<0?99:i;}
+function updateStats(){var open=0,ch=0,eps={},counts={};SEV.forEach(function(s){counts[s]=0;});
+  findingsCache.forEach(function(f){if(f.status!=='fixed'&&f.status!=='false positive')open++;if(f.severity==='critical'||f.severity==='high')ch++;if(f.endpoint)eps[f.endpoint]=1;counts[f.severity]=(counts[f.severity]||0)+1;});
+  el('ovOpen').textContent=open;el('ovCH').textContent=ch;el('ovTotal').textContent=findingsCache.length;el('ovEndpoints').textContent=Object.keys(eps).length;
+  var bar=el('sevBar');bar.innerHTML='';var leg=el('sevLegend');leg.innerHTML='';var tot=findingsCache.length||1;
+  SEV.forEach(function(s){var n=counts[s]||0;if(n){var sp=document.createElement('span');sp.className='bg-'+s;sp.style.width=(n/tot*100)+'%';sp.title=s+': '+n;bar.appendChild(sp);}
+    var lg=document.createElement('div');lg.innerHTML='<i class="bg-'+s+'"></i>'+s+' ('+n+')';leg.appendChild(lg);});}
+function buildFilters(){var fs=el('findSev'),ft=el('findStat');if(fs.options.length<=1){SEV.forEach(function(s){var o=document.createElement('option');o.value=s;o.textContent=s;fs.appendChild(o);});}
+  if(ft.options.length<=1){STT.forEach(function(s){var o=document.createElement('option');o.value=s;o.textContent=s;ft.appendChild(o);});}}
+function currentFilter(){return {q:val('findSearch').trim().toLowerCase(),sev:val('findSev'),stat:val('findStat')};}
+function applyFilters(){var f=currentFilter();var list=findingsCache.filter(function(x){
+    if(f.sev&&x.severity!==f.sev)return false;if(f.stat&&x.status!==f.stat)return false;
+    if(f.q){var hay=((x.id||'')+' '+(x.title||'')+' '+(x.endpoint||'')+' '+(x.description||'')).toLowerCase();if(hay.indexOf(f.q)<0)return false;}
+    return true;});
+  list.sort(function(a,b){var d=sevRank(a.severity)-sevRank(b.severity);return d!==0?d:String(a.id).localeCompare(String(b.id));});
+  renderFindings(list);
+  el('findCount').textContent=list.length===findingsCache.length?('('+findingsCache.length+')'):('(showing '+list.length+' of '+findingsCache.length+')');}
+function updateCacheFinding(f){var i=findingsCache.findIndex(function(x){return x.id===f.id;});if(i>=0)findingsCache[i]=f;else findingsCache.push(f);}
+function patchField(id,body,okMsg){return api('/api/findings/'+encodeURIComponent(id),{method:'PATCH',body:body}).then(function(r){updateCacheFinding(r.finding);updateStats();if(okMsg)toast(okMsg,'ok');return r.finding;}).catch(function(e){toast(e.message||'Update failed','err');loadState();});}
+function sevSelect(f){var s=document.createElement('select');s.className='inline sev-'+f.severity;SEV.forEach(function(x){var o=document.createElement('option');o.value=x;o.textContent=x;if(x===f.severity)o.selected=true;s.appendChild(o);});
+  s.onchange=function(){s.className='inline sev-'+s.value;patchField(f.id,{severity:s.value},'Severity updated');};return s;}
+function statSelect(f){var s=document.createElement('select');s.className='inline';STT.forEach(function(x){var o=document.createElement('option');o.value=x;o.textContent=x;if(x===f.status)o.selected=true;s.appendChild(o);});
+  s.onchange=function(){patchField(f.id,{status:s.value},'Status updated');};return s;}
+function editableCell(f,field,placeholder){var span=document.createElement('span');span.className='editable';span.contentEditable='true';span.textContent=f[field]||'';span.setAttribute('data-ph',placeholder||'');
+  var orig=f[field]||'';
+  span.addEventListener('focus',function(){orig=span.textContent;});
+  span.addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();span.blur();}if(e.key==='Escape'){span.textContent=orig;span.blur();}});
+  span.addEventListener('blur',function(){var v=span.textContent.trim();if(v===orig)return;if(field==='title'&&!v){span.textContent=orig;toast('Title cannot be empty','err');return;}var b={};b[field]=v;patchField(f.id,b,(field==='title'?'Title':'Endpoint')+' updated');});
+  return span;}
+function renderFindings(list){var rows=el('findingRows');rows.innerHTML='';
+  if(!list.length){var tr=document.createElement('tr');var td=document.createElement('td');td.colSpan=6;td.className='muted';td.textContent=findingsCache.length?'No findings match your search.':'No findings yet. Add one or run an assessment.';tr.appendChild(td);rows.appendChild(tr);return;}
+  list.forEach(function(f){var tr=document.createElement('tr');
+    var cId=document.createElement('td');cId.innerHTML='<code>'+esc(f.id)+'</code>';tr.appendChild(cId);
+    var cTitle=document.createElement('td');cTitle.appendChild(editableCell(f,'title','Title'));tr.appendChild(cTitle);
+    var cSev=document.createElement('td');cSev.appendChild(sevSelect(f));tr.appendChild(cSev);
+    var cStat=document.createElement('td');cStat.appendChild(statSelect(f));tr.appendChild(cStat);
+    var cEp=document.createElement('td');cEp.appendChild(editableCell(f,'endpoint','/path'));tr.appendChild(cEp);
+    var cAct=document.createElement('td');cAct.className='ta-r';
+    var e=document.createElement('button');e.className='btn ghost sm';e.textContent='Details';e.onclick=function(){openFinding(f);};
+    var d=document.createElement('button');d.className='btn ghost sm';d.textContent='Delete';
+    d.onclick=function(){if(d.getAttribute('data-c')){api('/api/findings/'+encodeURIComponent(f.id),{method:'DELETE'}).then(function(){findingsCache=findingsCache.filter(function(x){return x.id!==f.id;});applyFilters();updateStats();toast('Finding '+f.id+' deleted','ok');}).catch(function(err){toast(err.message,'err');});}else{d.setAttribute('data-c','1');d.textContent='Confirm?';d.classList.add('danger');setTimeout(function(){d.removeAttribute('data-c');d.textContent='Delete';d.classList.remove('danger');},2500);}};
+    cAct.appendChild(e);cAct.appendChild(d);tr.appendChild(cAct);rows.appendChild(tr);});}
+function fillModalSelects(){var sv=el('fSeverity'),st=el('fStatus');if(!sv||!st)return;sv.innerHTML='';st.innerHTML='';SEV.forEach(function(x){var o=document.createElement('option');o.value=x;o.textContent=x;sv.appendChild(o);});STT.forEach(function(x){var o=document.createElement('option');o.value=x;o.textContent=x;st.appendChild(o);});}
+function openFinding(f){el('modalErr').hidden=true;fillModalSelects();
+  if(f){el('modalTitle').textContent='Edit finding '+f.id;el('fId').value=f.id;el('fTitle').value=f.title||'';el('fSeverity').value=f.severity||'info';el('fStatus').value=f.status||'open';el('fEndpoint').value=f.endpoint||'';el('fDesc').value=f.description||'';}
+  else{el('modalTitle').textContent='Add finding';el('fId').value='';el('fTitle').value='';el('fSeverity').value='medium';el('fStatus').value='open';el('fEndpoint').value='';el('fDesc').value='';}
+  el('modal').hidden=false;setTimeout(function(){el('fTitle').focus();},30);}
+function closeModal(){el('modal').hidden=true;}
+function saveFinding(){var id=val('fId');var body={title:val('fTitle'),severity:val('fSeverity'),status:val('fStatus'),endpoint:val('fEndpoint'),description:val('fDesc')};
+  if(!body.title.trim()){el('modalErr').textContent='Title is required.';el('modalErr').hidden=false;return;}
+  var req=id?api('/api/findings/'+encodeURIComponent(id),{method:'PATCH',body:body}):api('/api/findings',{method:'POST',body:body});
+  req.then(function(r){closeModal();updateCacheFinding(r.finding);applyFilters();updateStats();toast(id?'Finding updated':'Finding added','ok');}).catch(function(e){el('modalErr').textContent=e.message;el('modalErr').hidden=false;});}
+function saveTarget(){var body={name:val('tName'),url:val('tUrl'),ip:val('tIp'),scope:val('tScope'),notes:val('tNotes')};el('tMsg').textContent='Saving\u2026';api('/api/target',{method:'PUT',body:body}).then(function(r){targetCache=r.target;el('tMsg').textContent='Saved.';el('ovTargetName').textContent=(r.target.name||'\u2014')+(r.target.url?(' \u00b7 '+r.target.url):'');toast('Target saved','ok');}).catch(function(e){el('tMsg').textContent=e.message;toast(e.message,'err');});}
+function loadOverview(){api('/api/doctor').then(function(d){el('doctorOut').textContent=d.output||'';setVcChip(d.installed);var v=el('vcVersion');if(v){v.textContent=d.version&&d.version!=='unknown'?('engine '+d.version):(d.installed?'engine ready':'demo mode');v.className='chip '+(d.installed?'ok':'warn');}}).catch(function(){});}
+function buildPreview(){var m=val('mode'),t=val('target').trim();var p=['vulnclaw',m];if(t)p.push(t);
+  if(m==='scan'&&val('ports').trim())p.push('--ports',val('ports').trim());
+  if(m==='exploit'){if(val('cve').trim())p.push('--cve',val('cve').trim());if(val('cmd').trim())p.push('--cmd','"'+val('cmd').trim()+'"');}
+  if(m==='persistent'){if(val('rounds').trim())p.push('-r',val('rounds').trim());if(val('cycles').trim())p.push('-c',val('cycles').trim());if(el('noReport').checked)p.push('--no-report');}
+  return p.join(' ');}
+function syncFields(){var m=val('mode');['scan','exploit','persistent'].forEach(function(k){document.querySelectorAll('.only-'+k).forEach(function(x){x.style.display=(m===k)?'':'none';});});el('preview').textContent=buildPreview();}
+var curJob=null,pollTimer=null,since=0;
+function appendTerm(line){var t=el('term');if(t.textContent==='Idle. Configure a target and run an assessment.')t.textContent='';t.textContent+=line+'\n';t.scrollTop=t.scrollHeight;}
+function setRunStatus(s){var c=el('runStatus');c.textContent=s;var cls='';if(s.indexOf('running')===0)cls='warn';else if(s==='done')cls='ok';else if(s==='error')cls='err';c.className='chip '+cls;}
+function runAssessment(){var body={mode:val('mode'),target:val('target'),ports:val('ports'),cve:val('cve'),cmd:val('cmd'),rounds:val('rounds'),cycles:val('cycles'),noReport:el('noReport').checked};el('term').textContent='';since=0;
+  api('/api/run',{method:'POST',body:body}).then(function(r){curJob=r.jobId;el('btnRun').disabled=true;el('btnStop').disabled=false;setRunStatus('running'+(r.demo?' (demo)':''));appendTerm('$ '+r.cmd);poll();}).catch(function(e){appendTerm('[error] '+e.message);toast(e.message,'err');});}
+function poll(){if(!curJob)return;api('/api/jobs/'+curJob+'?since='+since).then(function(j){(j.lines||[]).forEach(appendTerm);since=j.nextSince;if(j.status==='running'){pollTimer=setTimeout(poll,900);}else{finishRun(j.status);}}).catch(function(){finishRun('error');});}
+function finishRun(status){el('btnRun').disabled=false;el('btnStop').disabled=true;setRunStatus(status);curJob=null;loadReports();if(status==='done')toast('Assessment complete','ok');else if(status==='error')toast('Assessment ended with errors','err');}
+function stopJob(){if(!curJob)return;api('/api/jobs/'+curJob+'/stop',{method:'POST'}).catch(function(){});}
+var reportsCache=[];
+function loadReports(){return api('/api/reports').then(function(r){reportsCache=r.reports||[];renderReports();}).catch(function(){});}
+function renderReports(){var q=val('repSearch').trim().toLowerCase();var list=reportsCache.filter(function(f){return !q||f.name.toLowerCase().indexOf(q)>=0;});var rows=el('reportRows');
+  if(!list.length){rows.innerHTML='<tr><td colspan="5" class="muted">'+(reportsCache.length?'No reports match your search.':'No reports yet. Run an assessment to generate one.')+'</td></tr>';return;}rows.innerHTML='';
+  list.forEach(function(f){var tr=document.createElement('tr');tr.innerHTML='<td>'+esc(f.name)+'</td><td>'+esc(f.dir)+'</td><td>'+fmtSize(f.size)+'</td><td>'+fmtTime(f.mtime)+'</td>';
+    var td=document.createElement('td');td.className='ta-r';
+    var v=document.createElement('button');v.className='btn ghost sm';v.textContent='View';v.onclick=function(){viewReport(f);};
+    var d=document.createElement('button');d.className='btn ghost sm';d.textContent='Download';d.onclick=function(){downloadReport(f);};
+    td.appendChild(v);td.appendChild(d);tr.appendChild(td);rows.appendChild(tr);});}
+function viewReport(f){fetch('/api/report?dir='+encodeURIComponent(f.dir)+'&name='+encodeURIComponent(f.name),{headers:authHeaders()}).then(function(r){return r.text();}).then(function(t){el('viewerName').textContent=f.name;el('viewer').textContent=t;el('viewerPanel').hidden=false;el('viewerPanel').scrollIntoView({behavior:'smooth'});});}
+function downloadReport(f){fetch('/api/report?download=1&dir='+encodeURIComponent(f.dir)+'&name='+encodeURIComponent(f.name),{headers:authHeaders()}).then(function(r){return r.blob();}).then(function(b){var u=URL.createObjectURL(b);var a=document.createElement('a');a.href=u;a.download=f.name;document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(u);});}
+function loadProviders(){return api('/api/providers').then(function(r){var sel=el('cfgProvider');var cur=sel.value;sel.innerHTML='<option value="">(keep current)</option>';(r.providers||[]).forEach(function(p){var o=document.createElement('option');o.value=p;o.textContent=p;sel.appendChild(o);});sel.value=cur;return r;}).catch(function(){});}
+function loadConfig(){return api('/api/config').then(function(r){var e=r.env||{};if(e.model&&!el('cfgModel').value)el('cfgModel').value=e.model;if(e.base_url&&!el('cfgBase').value)el('cfgBase').value=e.base_url;el('cfgOut').hidden=false;el('cfgOut').textContent='Provider: '+(e.provider||'-')+'\nModel: '+(e.model||'-')+'\nBase URL: '+(e.base_url||'-')+'\nAPI key: '+(e.api_key_set?'set':'not set')+'\n\n'+(r.output||'');return r;}).catch(function(){});}
+function initEngine(){el('cfgMsg').textContent='Initializing\u2026';api('/api/init',{method:'POST'}).then(function(r){el('cfgOut').hidden=false;el('cfgOut').textContent=r.output||'';el('cfgMsg').textContent='Engine initialized.';toast('Engine initialized','ok');loadOverview();}).catch(function(e){el('cfgMsg').textContent=e.message;toast(e.message,'err');});}
+function saveConfig(){var body={provider:val('cfgProvider'),model:val('cfgModel'),base_url:val('cfgBase'),api_key:val('cfgKey')};el('cfgMsg').textContent='Saving\u2026';
+  api('/api/config',{method:'POST',body:body}).then(function(r){el('cfgMsg').textContent='Saved.';el('cfgKey').value='';el('cfgOut').hidden=false;el('cfgOut').textContent=(r.steps||[]).map(function(s){return '$ '+s.cmd+'\n'+(s.out||'')+'  (exit '+s.rc+')';}).join('\n');toast('Configuration saved','ok');loadOverview();}).catch(function(e){el('cfgMsg').textContent=e.message;toast(e.message,'err');});}
+(function(){
+  el('loginForm').addEventListener('submit',function(e){e.preventDefault();var err=el('loginErr');err.hidden=true;
+    fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:val('email'),password:val('password')})})
+     .then(function(r){return r.json().then(function(j){return {ok:r.ok,j:j};});})
+     .then(function(res){if(!res.ok){err.textContent=res.j.error||'Sign in failed';err.hidden=false;return;}setToken(res.j.token,el('remember').checked);showApp(res.j.email);loadState();loadOverview();loadReports();toast('Signed in','ok');})
+     .catch(function(){err.textContent='Network error. Please try again.';err.hidden=false;});});
+  el('togglePw').addEventListener('click',function(){var p=el('password');if(p.type==='password'){p.type='text';this.textContent='Hide';}else{p.type='password';this.textContent='Show';}});
+  document.querySelectorAll('.sidebar nav a').forEach(function(a){a.addEventListener('click',function(){var sec=a.getAttribute('data-sec');
+    document.querySelectorAll('.sidebar nav a').forEach(function(x){x.classList.toggle('active',x===a);});
+    document.querySelectorAll('section.page').forEach(function(s){s.hidden=s.getAttribute('data-sec')!==sec;});
+    el('pageTitle').textContent=a.textContent;el('app').classList.remove('nav-open');
+    if(sec==='reports')loadReports();if(sec==='overview'){loadState();loadOverview();}if(sec==='findings'||sec==='target')loadState();if(sec==='settings'){loadConfig();loadProviders();}});});
+  el('menuBtn').addEventListener('click',function(){el('app').classList.toggle('nav-open');});
+  el('logout').addEventListener('click',function(){showLogin();toast('Signed out','ok');});
+  el('mode').addEventListener('change',syncFields);
+  ['target','ports','cve','cmd','rounds','cycles'].forEach(function(id){el(id).addEventListener('input',function(){el('preview').textContent=buildPreview();});});
+  el('noReport').addEventListener('change',function(){el('preview').textContent=buildPreview();});
+  el('btnRun').addEventListener('click',runAssessment);
+  el('btnStop').addEventListener('click',stopJob);
+  el('btnClear').addEventListener('click',function(){el('term').textContent='Idle. Configure a target and run an assessment.';});
+  el('btnDoctor').addEventListener('click',loadOverview);
+  el('btnReloadReports').addEventListener('click',loadReports);
+  el('repSearch').addEventListener('input',renderReports);
+  el('btnCloseViewer').addEventListener('click',function(){el('viewerPanel').hidden=true;});
+  el('btnSaveCfg').addEventListener('click',saveConfig);
+  el('btnProviders').addEventListener('click',function(){loadProviders().then(function(){toast('Providers refreshed','ok');});});
+  el('btnInit').addEventListener('click',initEngine);
+  el('btnReloadCfg').addEventListener('click',function(){loadConfig();toast('Config reloaded','ok');});
+  el('btnSaveTarget').addEventListener('click',saveTarget);
+  el('btnResetTarget').addEventListener('click',function(){fillTarget(targetCache);toast('Reverted','ok');});
+  ['tName','tUrl','tIp','tScope','tNotes'].forEach(function(id){el(id).addEventListener('input',function(){el('tMsg').textContent='Unsaved changes';});});
+  el('btnAddFinding').addEventListener('click',function(){openFinding(null);});
+  el('fSave').addEventListener('click',saveFinding);
+  el('modalClose').addEventListener('click',closeModal);
+  el('modalCancel').addEventListener('click',closeModal);
+  el('modal').addEventListener('click',function(e){if(e.target===el('modal'))closeModal();});
+  el('findSearch').addEventListener('input',applyFilters);
+  el('findSev').addEventListener('change',applyFilters);
+  el('findStat').addEventListener('change',applyFilters);
+  el('findReset').addEventListener('click',function(){el('findSearch').value='';el('findSev').value='';el('findStat').value='';applyFilters();});
+  document.addEventListener('keydown',function(e){if(e.key==='Escape'&&!el('modal').hidden)closeModal();});
+  syncFields();
+  var t=getToken();
+  if(t){api('/api/session').then(function(s){showApp(s.email);loadState();loadOverview();loadReports();}).catch(function(){showLogin();});}else{showLogin();}
+})();
+</script>
+</body>
+</html>
