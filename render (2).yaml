@@ -1,0 +1,37 @@
+# render.yaml — FIXED Render Blueprint for VulnClaw Web UI
+# Place in the ROOT of your repo (Manuelfosu/VulnClaw), commit, then re-sync in Render.
+#
+# WHY THIS VERSION: the previous Docker-based deploy failed. This uses Render's
+# native Python runtime, which avoids Docker ENTRYPOINT conflicts, installs the
+# Web UI extra explicitly, binds to 0.0.0.0:$PORT, and has NO fragile health
+# check. This is the most reliable way to get VulnClaw's Web UI live.
+#
+# TRADE-OFF: the native runtime does NOT include nmap / Node(npx) / Chromium,
+# so port scanning and browser-automation tools are limited. The Web UI, LLM
+# agent, and reporting all work. If you need the full toolchain, use the Docker
+# variant noted in the chat (and read the deploy logs for the exact error).
+
+services:
+  - type: web
+    name: vulnclaw
+    runtime: python
+    plan: starter            # paid plan (needed for the disk below); "free" also works if you delete the disk block
+    region: oregon           # or frankfurt / singapore / ohio
+    autoDeploy: true
+    buildCommand: pip install --upgrade pip && pip install "vulnclaw[web]"
+    startCommand: vulnclaw web --host 0.0.0.0 --port $PORT --allow-remote
+    envVars:
+      - key: VULNCLAW_LLM_API_KEY
+        sync: false          # paste your real key in the Render dashboard
+      - key: VULNCLAW_LLM_MODEL
+        value: gpt-4o        # change to your provider's model if needed
+      - key: PYTHON_VERSION
+        value: "3.12.7"      # VulnClaw needs Python 3.10+
+      - key: PYTHONUNBUFFERED
+        value: "1"
+    # Optional: persist config/sessions/reports across restarts (paid plan only).
+    # DELETE this whole block if you are on the free plan.
+    disk:
+      name: vulnclaw-data
+      mountPath: /data
+      sizeGB: 1
