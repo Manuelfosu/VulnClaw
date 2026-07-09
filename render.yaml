@@ -1,0 +1,59 @@
+# render.yaml — FINAL, CORRECTED Render Blueprint for VulnClaw Web UI
+# Repo: Manuelfosu/VulnClaw. Put this in the repo ROOT, commit, then Manual Sync.
+#
+# ---------------------------------------------------------------------------
+# WHY YOUR LAST DEPLOY FAILED (status 127 "not found"):
+#   1) The old service was created as a DOCKER service. Re-syncing a blueprint
+#      does NOT switch an existing service's runtime, so it kept building Docker
+#      and could not find `vulnclaw` on the container PATH.
+#   2) This file uses Render's native PYTHON runtime, which pip-installs
+#      vulnclaw so the `vulnclaw` command is on PATH.
+#   3) The service is RENAMED to "vulnclaw-web" so Render creates a brand-new
+#      Python service instead of reusing the broken Docker one.
+#      (If you prefer to keep the old name, delete the old service in Render
+#      first, then sync.)
+# ---------------------------------------------------------------------------
+#
+# ============================ REQUIRED MANUAL STEP =========================
+# In the Render dashboard, set the SECRET value for VULNCLAW_LLM_API_KEY.
+# Without a valid key the site loads but every AI action fails.
+# ===========================================================================
+#
+# CONFIGURED FOR DEEPSEEK. Provider = deepseek, model = deepseek-v4-pro (the
+# tool's built-in DeepSeek preset). If DeepSeek rejects that model name, change
+# VULNCLAW_LLM_MODEL in the dashboard to your account's model (e.g. deepseek-chat
+# or deepseek-reasoner). Leaving VULNCLAW_LLM_MODEL EMPTY keeps whatever default
+# the `deepseek` preset sets.
+#
+# LIMITATION: the Python runtime does not bundle nmap / Node(npx) / Chromium,
+# so port scanning + browser automation are limited. The Web UI, AI agent,
+# and report generation work. Ask for the Docker variant if you need the
+# full scanning toolchain.
+
+services:
+  - type: web
+    name: vulnclaw-web            # renamed to force a fresh Python service
+    runtime: python
+    plan: starter                # "free" also works (no disk needed)
+    region: oregon               # or frankfurt / singapore / ohio
+    autoDeploy: true
+    buildCommand: pip install --upgrade pip && pip install "vulnclaw[web]"
+    # Configure the LLM at startup (non-blocking with || true) so the web
+    # server ALWAYS launches even if a config step hiccups. $PORT is provided
+    # by Render and must be used, and the host must be 0.0.0.0.
+    startCommand: >-
+      vulnclaw config provider "$VULNCLAW_PROVIDER" || true;
+      vulnclaw config set llm.api_key "$VULNCLAW_LLM_API_KEY" || true;
+      { [ -n "$VULNCLAW_LLM_MODEL" ] && vulnclaw config set llm.model "$VULNCLAW_LLM_MODEL"; } || true;
+      vulnclaw web --host 0.0.0.0 --port $PORT --allow-remote
+    envVars:
+      - key: VULNCLAW_LLM_API_KEY
+        sync: false              # <-- paste your real key in the dashboard
+      - key: VULNCLAW_PROVIDER
+        value: deepseek
+      - key: VULNCLAW_LLM_MODEL
+        value: deepseek-v4-pro
+      - key: PYTHON_VERSION
+        value: "3.12.7"
+      - key: PYTHONUNBUFFERED
+        value: "1"
