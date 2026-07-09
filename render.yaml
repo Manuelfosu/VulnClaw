@@ -1,0 +1,42 @@
+# Render Blueprint for the merged VulnClaw + BIGGCLAW console.
+# Push a VulnClaw clone (with this overlay applied) to GitHub, then:
+#   Render -> New -> Blueprint -> pick the repo.
+services:
+  - type: web
+    name: biggclaw
+    runtime: python
+    plan: starter
+    region: oregon
+    # Install VulnClaw itself from THIS repo (-e .), its web extra, then the console deps.
+    buildCommand: |
+      pip install --upgrade pip
+      pip install -e .
+      pip install "vulnclaw[web]" || true
+      pip install -r biggclaw/requirements.txt
+    startCommand: gunicorn wsgi:app --bind 0.0.0.0:$PORT --workers 1 --threads 8 --timeout 600
+    healthCheckPath: /healthz
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.7"
+      - key: ADMIN_EMAIL
+        value: manuelfosu360@gmail.com
+      - key: ADMIN_PASSWORD_HASH
+        sync: false
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: TOKEN_TTL
+        value: "43200"
+      - key: VULNCLAW_BIN
+        value: vulnclaw
+      - key: VULNCLAW_PROVIDER
+        value: deepseek
+      - key: VULNCLAW_LLM_MODEL
+        value: deepseek-v4-pro
+      - key: VULNCLAW_LLM_API_KEY
+        sync: false
+      - key: VULNCLAW_LLM_BASE_URL
+        sync: false
+      - key: VULNCLAW_WORKDIR
+        value: /var/data
+      - key: PYTHONUNBUFFERED
+        value: "1"

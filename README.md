@@ -105,7 +105,7 @@ You can also change the provider/model/key and initialize the engine later from 
 - **Overview** - open/critical counts, severity breakdown bar, target summary, engine status + version, and a live `doctor` readout.
 - **Target** - edit engagement details; **Save target** (or **Revert**).
 - **Findings** - search and filter by severity/status; edit severity/status inline; click a title or endpoint to edit in place; **+ Add finding** or open **Details** for the full form; delete with a two-click confirm.
-- **Assessment** - pick a target and mode, review the exact command, then **Run**. Output streams live; a built-in **command reference** explains every mode.
+- **Assessment** - pick a target and mode, review the exact command, then **Run**. Output streams live; a built-in **command reference** explains every mode. When a run finishes, BIGGCLAW **auto-imports the results**: it parses the session JSON, the generated report table, and the live output, then adds any new vulnerabilities to **Findings** (deduplicated) and shows a summary banner with the severity breakdown and links to the produced reports. Use the banner's report links or the **Reports** tab to open them. Re-import a job's results anytime with `POST /api/jobs/<id>/import`.
 - **Reports** - search, **View**, or **Download** any generated report or PoC.
 - **Settings** - set the LLM provider/model/key, **Refresh providers** (dynamic list), **Initialize engine** (`init`), and **Reload current config**.
 
