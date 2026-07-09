@@ -1,0 +1,32 @@
+# render.yaml — Render Blueprint for hosting VulnClaw (Web UI)
+# Place this file in the ROOT of your VulnClaw repo (same folder as Dockerfile).
+#
+# VulnClaw ships a Dockerfile that bundles the Web UI plus the npx/uvx/nmap
+# runtimes the tool needs, so we deploy it as a Docker web service.
+# The default `vulnclaw web` binds to 127.0.0.1:7788, so we override the start
+# command to bind 0.0.0.0 on Render's assigned $PORT with --allow-remote.
+
+services:
+  - type: web
+    name: vulnclaw
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: starter            # "free" also works, but remove the disk block below on free
+    region: oregon           # or frankfurt / singapore / ohio — pick the closest
+    autoDeploy: true
+    dockerCommand: sh -c "vulnclaw web --host 0.0.0.0 --port $PORT --allow-remote"
+    healthCheckPath: /
+    envVars:
+      - key: VULNCLAW_LLM_API_KEY
+        sync: false          # paste this secret in the Render dashboard
+      - key: VULNCLAW_LLM_MODEL
+        value: gpt-4o        # optional: change to your provider's model
+      - key: PYTHONUNBUFFERED
+        value: "1"
+    # Optional but recommended: persist config/sessions/reports across restarts.
+    # Disks require a PAID plan (starter+). DELETE this whole block on the free plan.
+    disk:
+      name: vulnclaw-data
+      mountPath: /data
+      sizeGB: 1
